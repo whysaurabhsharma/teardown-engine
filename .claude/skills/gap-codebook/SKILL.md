@@ -6,8 +6,9 @@ description: The five teardown gaps (G1-G5), their evidence and abstain conditio
 # Gap codebook
 
 Source of truth: `protocol/GAPS.md`. If this skill and GAPS.md disagree, GAPS.md
-wins; update this skill and say so. Codebook version: v0 (from docs/PLAN.md;
-rewrite from HAND_NOTES.md in Step 16, bump to v2 in Step 45).
+wins; update this skill and say so. Synced to GAPS.md v1 (not yet corrected
+from HAND_NOTES.md; GAPS.md goes to v2 in Step 45). GAPS.md also holds the
+faithfulness, verifier and held-out scoring rules.
 
 ## The task
 Say what the new GTM hire will need on day one, and which one of the five gaps
@@ -28,9 +29,10 @@ Not primary findings: hidden pricing, a broad or unclear job description. Either
 may appear once, as a question, in a follow-up.
 
 ## Rules
-- Each gap needs evidence from at least two different artifacts.
-- Every claim carries a verbatim quote (under 25 words) and its source URL. The
-  quote must be a substring of the captured artifact text. No quote, no claim.
+- Each gap needs evidence from at least two different artifact kinds.
+- Every claim carries a verbatim quote and its source URL. The quote must be a
+  substring of the captured artifact text. No quote, no claim. (Quotes shown
+  on the page are under 25 words.)
 - Several gaps may fit: return the one with the strongest evidence as
   `gap_type`; list the others in `secondary`.
 - Abstaining is expected. Plan for 40 to 60 percent `no_gap`. A high drop rate
@@ -46,9 +48,11 @@ may appear once, as a question, in a follow-up.
 - Below 0.6: abstain.
 
 ## Diagnosis shape
-`attempted` (bool, required), `gap_type` (G1..G5 or null), `claims` (array of
-{text, artifact_kind, url, quote}), `secondary` (array of gap ids),
-`abstain_reason` (string or null), `confidence` (0..1), `prompt_version`.
+As in GAPS.md (Step 47 schema): `attempted` (bool, required), `gap_type`
+(G1..G5 or null), `confidence`, `need`, `claims` (array of {text,
+artifact_kind, quote}), `secondary` (array of gap ids), `abstain_reason`
+(string or null), `cannot_see`. Open question for Step 47: carry `url` on each
+claim, or take it from the artifact row.
 
 ## Teach examples
 None yet. Step 45 adds the five `teach` gold diagnoses here: both segments, at

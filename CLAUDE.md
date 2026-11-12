@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 1, Stage 1.2, Step 15 done (CLAUDE.md, settings, skills). Next: Step 16.
+Phase 1, Stage 1.2, Step 16 done (protocol ICP, GAPS, CONDUCT, TEARDOWN_SPEC v1). Next: Step 17.
