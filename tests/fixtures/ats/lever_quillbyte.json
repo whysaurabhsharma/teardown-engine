@@ -1,0 +1,52 @@
+[
+  {
+    "additionalPlain": "Quillbyte is an equal opportunity employer.",
+    "additional": "<div>Quillbyte is an equal opportunity employer.</div>",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Revenue",
+      "location": "Pune, India",
+      "team": "Sales",
+      "allLocations": ["Pune, India", "Remote - India"]
+    },
+    "createdAt": 1793700000000,
+    "descriptionPlain": "Quillbyte helps procurement teams compare supplier quotes.\nWe are hiring our first account executive for India.",
+    "description": "<div>Quillbyte helps procurement teams compare supplier quotes.</div><div>We are hiring our first account executive for India.</div>",
+    "id": "5c1e7a2b-90d4-4f6e-8a1b-3f2d6c7e9a10",
+    "lists": [
+      {
+        "text": "What you will do",
+        "content": "<li>Run full-cycle deals with mid-market buyers</li><li>Build the first sales playbook with the founders</li>"
+      },
+      {
+        "text": "What you bring",
+        "content": "<li>Three years closing B2B software deals</li>"
+      }
+    ],
+    "text": "Founding Account Executive",
+    "country": "IN",
+    "workplaceType": "hybrid",
+    "hostedUrl": "https://jobs.lever.co/quillbyte/5c1e7a2b-90d4-4f6e-8a1b-3f2d6c7e9a10",
+    "applyUrl": "https://jobs.lever.co/quillbyte/5c1e7a2b-90d4-4f6e-8a1b-3f2d6c7e9a10/apply"
+  },
+  {
+    "additionalPlain": "",
+    "additional": "",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Operations",
+      "location": "Austin, TX",
+      "team": "Revenue Operations"
+    },
+    "createdAt": 1792000000000,
+    "descriptionPlain": "Own the CRM and the reporting the sales team runs on.",
+    "description": "<div>Own the CRM and the reporting the sales team runs on.</div>",
+    "id": "a9f3b8c1-2d47-4e05-b6a2-71c0d4e8f523",
+    "lists": [],
+    "text": "Revenue Operations Manager",
+    "country": "US",
+    "workplaceType": "onsite",
+    "hostedUrl": "https://jobs.lever.co/quillbyte/a9f3b8c1-2d47-4e05-b6a2-71c0d4e8f523",
+    "applyUrl": "https://jobs.lever.co/quillbyte/a9f3b8c1-2d47-4e05-b6a2-71c0d4e8f523/apply"
+  }
+]

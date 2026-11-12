@@ -8,7 +8,6 @@ from pathlib import Path
 import click
 
 STUB_COMMANDS = (
-    "find",
     "understand",
     "judge",
     "build",
@@ -198,6 +197,104 @@ def fetch_cmd(
         _fail(str(e))
         return
     click.echo(f"requests sent: {made}")
+
+
+@main.group("signal")
+def signal_group() -> None:
+    """E1: collect job posts into the signals table."""
+
+
+@signal_group.command("collect")
+@click.option("--board", "boards", multiple=True, metavar="SOURCE:SLUG",
+              help="A board to read, e.g. greenhouse:zentrico. Repeatable. "
+                   "SOURCE is greenhouse, lever, ashby or workable.")
+@click.option("--boards-file", type=click.Path(dir_okay=False, exists=True, path_type=Path),
+              default=None, help="File with one SOURCE:SLUG per line (# comments allowed).")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Read at most this many boards.")
+@click.option("--dry-run", is_flag=True, help="Print the projected request count and exit.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on requests (default 500).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def signal_collect(
+    boards: tuple[str, ...],
+    boards_file: Path | None,
+    limit: int | None,
+    dry_run: bool,
+    max_fetches: int | None,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Read ATS boards through Guard and insert new job posts as signals.
+
+    A 404 is a wrong or private board and an empty list is a real board with
+    nothing open; both are reported, neither stops the run.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import Budget, BudgetExceeded, format_projection, project
+    from engine.guard.cache import Cache
+    from engine.guard.http import Guard, GuardConfigError
+    from engine.signal import ats
+    from engine.signal.boards import board_urls, collect_board, read_boards_file, store, unique_boards
+
+    specs = list(boards) + (read_boards_file(boards_file) if boards_file else [])
+    try:
+        todo = unique_boards(specs)
+    except ValueError as e:
+        _fail(str(e))
+        return
+    if not todo:
+        _fail("no boards given; use --board SOURCE:SLUG or --boards-file")
+        return
+    if limit is not None:
+        todo = todo[:limit]
+    budget = Budget() if max_fetches is None else Budget(max_fetches=max_fetches)
+    cache = Cache(cache_dir)
+    if dry_run:
+        click.echo(format_projection(project(board_urls(todo), cache), budget))
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+
+    width = max(len(f"{s}:{b}") for s, b in todo)
+
+    async def run() -> tuple[int, int, int, int]:
+        found = new = errors = 0
+        async with Guard(cache=cache, budget=budget) as g:
+            for source, slug in todo:
+                name = f"{source}:{slug}"
+                try:
+                    r = await collect_board(source, slug, g)
+                except ats.BoardFormatError as e:
+                    errors += 1
+                    click.echo(f"{name:<{width}}  error      {e}")
+                    continue
+                added = store(conn, r.signals)
+                found += len(r.signals)
+                new += added
+                src = "cache" if r.from_cache else f"{r.requests} req"
+                status = r.status if r.status is not None else "-"
+                extra = f", {added} new" if r.signals else ""
+                skipped = f", {r.skipped} skipped" if r.skipped else ""
+                click.echo(f"{name:<{width}}  {r.state:<9} {status!s:>3}  {src:<7} "
+                           f"{r.note}{extra}{skipped}")
+            return found, new, errors, g.requests_made
+
+    try:
+        found, new, errors, made = asyncio.run(run())
+    except (GuardConfigError, BudgetExceeded) as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    click.echo(f"boards {len(todo)}, signals {found}, new {new}, errors {errors}, "
+               f"requests sent {made}")
+    sys.exit(1 if errors else 0)
 
 
 @main.group()

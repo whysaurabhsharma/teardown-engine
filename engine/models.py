@@ -52,6 +52,7 @@ class Signal(Row):
     url: str | None = None
     first_seen: date
     company_id: str | None = None
+    description_text: str | None = None  # plain text from the board's JSON (0003)
 
 
 class Company(Row):

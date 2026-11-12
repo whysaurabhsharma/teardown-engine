@@ -1,0 +1,40 @@
+{
+  "apiVersion": "1",
+  "jobs": [
+    {
+      "id": "0b6d2f84-3c1a-4e9b-9f27-5a8e1d4c3b62",
+      "title": "GTM Engineer",
+      "department": "Go To Market",
+      "team": "Growth",
+      "employmentType": "FullTime",
+      "location": "Hyderabad",
+      "secondaryLocations": [
+        {"location": "Bengaluru", "address": {"postalAddress": {"addressLocality": "Bengaluru", "addressRegion": "Karnataka", "addressCountry": "India"}}}
+      ],
+      "publishedAt": "2026-10-28T09:41:12.345+00:00",
+      "isListed": true,
+      "isRemote": false,
+      "address": {"postalAddress": {"addressLocality": "Hyderabad", "addressRegion": "Telangana", "addressCountry": "India"}},
+      "jobUrl": "https://jobs.ashbyhq.com/norvale/0b6d2f84-3c1a-4e9b-9f27-5a8e1d4c3b62",
+      "applyUrl": "https://jobs.ashbyhq.com/norvale/0b6d2f84-3c1a-4e9b-9f27-5a8e1d4c3b62/application",
+      "descriptionHtml": "<p>Norvale makes fleet maintenance software.</p><p>Wire our enrichment and routing into the CRM.</p>",
+      "descriptionPlain": "Norvale makes fleet maintenance software.\n\nWire our enrichment and routing into the CRM."
+    },
+    {
+      "id": "7e2c9a15-b4d8-4a63-8c10-e5f7a2b9d044",
+      "title": "Demand Generation Lead",
+      "department": "Marketing",
+      "team": "Marketing",
+      "employmentType": "FullTime",
+      "location": "Remote (US)",
+      "secondaryLocations": [],
+      "publishedAt": "2026-11-09T23:30:00.000-08:00",
+      "isListed": true,
+      "isRemote": true,
+      "jobUrl": "https://jobs.ashbyhq.com/norvale/7e2c9a15-b4d8-4a63-8c10-e5f7a2b9d044",
+      "applyUrl": "https://jobs.ashbyhq.com/norvale/7e2c9a15-b4d8-4a63-8c10-e5f7a2b9d044/application",
+      "descriptionHtml": "<p>Own pipeline from paid and partner channels.</p>",
+      "descriptionPlain": "Own pipeline from paid and partner channels."
+    }
+  ]
+}

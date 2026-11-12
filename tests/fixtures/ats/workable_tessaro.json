@@ -1,0 +1,52 @@
+{
+  "name": "Tessaro Labs",
+  "description": "<p>Tessaro Labs builds scheduling software for diagnostic clinics.</p>",
+  "jobs": [
+    {
+      "title": "Business Development Representative",
+      "shortcode": "7F3A21C9B0",
+      "code": "BDR-03",
+      "employment_type": "Full-time",
+      "telecommuting": false,
+      "department": "Sales",
+      "url": "https://apply.workable.com/j/7F3A21C9B0",
+      "shortlink": "https://apply.workable.com/j/7F3A21C9B0",
+      "application_url": "https://apply.workable.com/j/7F3A21C9B0/apply",
+      "published_on": "2026-10-30",
+      "created_at": "2026-10-29",
+      "country": "India",
+      "city": "Gurugram",
+      "state": "Haryana",
+      "education": "",
+      "experience": "Associate",
+      "function": "Sales",
+      "industry": "Computer Software",
+      "locations": [
+        {"country": "India", "countryCode": "IN", "city": "Gurugram", "region": "Haryana", "hidden": false}
+      ],
+      "description": "<p>Book first meetings with clinic owners across North India.</p><ul><li>Prospect from our clinic database</li></ul>"
+    },
+    {
+      "title": "Customer Success Manager",
+      "shortcode": "C04E88D1F2",
+      "code": "",
+      "employment_type": "Full-time",
+      "telecommuting": true,
+      "department": "Customer Success",
+      "url": "https://apply.workable.com/j/C04E88D1F2",
+      "shortlink": "https://apply.workable.com/j/C04E88D1F2",
+      "application_url": "https://apply.workable.com/j/C04E88D1F2/apply",
+      "published_on": null,
+      "created_at": "2026-11-02",
+      "country": "India",
+      "city": "Mumbai",
+      "state": "Maharashtra",
+      "education": "",
+      "experience": "Mid-Senior level",
+      "function": "Customer Service",
+      "industry": "Computer Software",
+      "locations": [],
+      "description": "<p>Keep our clinics live and growing.</p>"
+    }
+  ]
+}
