@@ -1,4 +1,4 @@
-.PHONY: test smoke backup
+.PHONY: test smoke backup verify
 
 test:
 	uv run pytest
@@ -8,3 +8,6 @@ smoke:
 
 backup:
 	uv run te backup
+
+verify:
+	uv run te verify

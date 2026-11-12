@@ -66,11 +66,16 @@ def default_budget() -> Budget:
 
 # --- contacts guard --------------------------------------------------------------
 
-def contact_values(conn: sqlite3.Connection) -> set[str]:
-    """Every non-null text value in contacts, plus each part of each name, >= 3 chars."""
+def contact_values(conn: sqlite3.Connection, company_id: str | None = None) -> set[str]:
+    """Every non-null text value in contacts, plus each part of each name, >= 3 chars.
+
+    With company_id, only that company's contacts rows."""
     cols = ", ".join(CONTACT_FIELDS)
     values: set[str] = set()
-    for row in conn.execute(f"SELECT {cols} FROM contacts"):
+    sql, params = f"SELECT {cols} FROM contacts", ()
+    if company_id is not None:
+        sql, params = sql + " WHERE company_id = ?", (company_id,)
+    for row in conn.execute(sql, params):
         for field in CONTACT_FIELDS:
             v = row[field]
             if not isinstance(v, str):
@@ -81,7 +86,7 @@ def contact_values(conn: sqlite3.Connection) -> set[str]:
     return values
 
 
-def _contact_pattern(value: str) -> re.Pattern[str]:
+def contact_pattern(value: str) -> re.Pattern[str]:
     words = [re.escape(w) for w in value.split(" ")]
     return re.compile(r"(?<!\w)" + r"\s+".join(words) + r"(?!\w)", re.IGNORECASE)
 
@@ -94,7 +99,7 @@ def check_no_contacts(conn: sqlite3.Connection, *texts: str) -> None:
         return
     for text in texts:
         for v in values:
-            if _contact_pattern(v).search(text):
+            if contact_pattern(v).search(text):
                 raise ContactInPrompt(
                     "prompt refused: it contains a value from the contacts table; "
                     "use a placeholder and let the renderer fill it locally"

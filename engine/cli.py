@@ -200,5 +200,56 @@ def fetch_cmd(
     click.echo(f"requests sent: {made}")
 
 
+@main.group()
+def debug() -> None:
+    """Redacted exports for debugging a record."""
+
+
+@debug.command("export")
+@click.argument("company_id")
+@_db_option
+@click.option("--out", "out_dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Output root (default: debug/).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+def debug_export(
+    company_id: str, db_file: Path | None, out_dir: Path | None, cache_dir: Path | None
+) -> None:
+    """Write COMPANY_ID's record to debug/<company_id>/ with every contact value removed."""
+    from engine import db as dbmod
+    from engine.debug import ExportError, export_company
+    from engine.guard.cache import Cache
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        dest = export_company(conn, company_id, out_dir, Cache(cache_dir))
+    except ExportError as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    click.echo(f"exported {dest}")
+
+
+@main.command("verify")
+@_db_option
+@click.option("--skip-tests", is_flag=True, help="Do not run the test suite.")
+@click.option("--root", type=click.Path(file_okay=False, exists=True, path_type=Path),
+              default=Path("."), show_default=True, help="Repository root.")
+def verify_cmd(db_file: Path | None, skip_tests: bool, root: Path) -> None:
+    """Run the pre-commit checks; exit 1 if any fails."""
+    from engine.verify import format_result, run_all
+
+    results = run_all(root, db_file, skip_tests=skip_tests)
+    width = max(len(r.name) for r in results)
+    for r in results:
+        click.echo(format_result(r, width))
+    sys.exit(0 if all(r.ok for r in results) else 1)
+
+
 if __name__ == "__main__":
     main()

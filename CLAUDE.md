@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 1, Stage 1.3, Step 19 done (model gateway, claude_headless, routes, migration 0002). Next: Step 20.
+Phase 1 done (Gate 1.3 passed, Step 20: debug export, te verify). Next: Phase 2, Step 21.
