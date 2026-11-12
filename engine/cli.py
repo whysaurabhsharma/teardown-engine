@@ -435,6 +435,74 @@ def signal_add(
     click.echo(f"{verb} {sig.signal_id}  {sig.company_name_raw} | {sig.title}")
 
 
+@signal_group.command("classify")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Classify at most this many unclassified signals.")
+@click.option("--company", "company_id", default=None,
+              help="Only signals attached to this company_id.")
+@click.option("--dry-run", is_flag=True,
+              help="Print how many signals the rules and the model would place, and exit.")
+@click.option("--no-model", is_flag=True,
+              help="Rules only; titles the rules cannot place stay unclassified.")
+@click.option("--max-model-calls", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on model calls (default 200).")
+@_db_option
+def signal_classify(
+    limit: int | None,
+    company_id: str | None,
+    dry_run: bool,
+    no_model: bool,
+    max_model_calls: int | None,
+    db_file: Path | None,
+) -> None:
+    """Set role_family and offer_type on signals that have no role_family yet.
+
+    Regex rules first; titles they cannot place go to the cached title
+    classifier (one call per distinct title, ever). Classified signals are
+    never touched, so a re-run changes nothing.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import Budget
+    from engine.signal import classify
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    budget = Budget() if max_model_calls is None else Budget(max_model_calls=max_model_calls)
+    try:
+        rep = classify.run(conn, limit=limit, company_id=company_id, dry_run=dry_run,
+                           use_model=not no_model, budget=budget)
+    finally:
+        conn.close()
+
+    if dry_run:
+        fresh = rep.model_titles - rep.model_cached
+        click.echo(f"unclassified signals {rep.rows}: rules {rep.by_rules}, "
+                   f"model {rep.by_model}")
+        click.echo(f"model titles {rep.model_titles} ({rep.model_cached} cached, "
+                   f"{fresh} would be calls{'; --no-model skips them' if no_model else ''})")
+        return
+    click.echo(f"unclassified signals {rep.rows}: rules {rep.by_rules}, model {rep.by_model}, "
+               f"left null {rep.rows - rep.updated}")
+    for fam in classify.FAMILIES:
+        if rep.families[fam]:
+            click.echo(f"  {fam:<12} {rep.families[fam]}")
+    if rep.updated:
+        click.echo("offer types: " + ", ".join(
+            f"{k} {rep.offers[k]}" for k in ("candidate", "adjacent", "none") if rep.offers[k]))
+    if rep.unresolved:
+        click.echo(f"unresolved titles {len(rep.unresolved)}:")
+        for title in rep.unresolved:
+            click.echo(f"  {title}")
+    for err in rep.errors:
+        click.echo(f"model error  {err}")
+    if rep.stopped:
+        click.echo(f"stopped: {rep.stopped}")
+    sys.exit(1 if rep.errors or rep.stopped else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""
