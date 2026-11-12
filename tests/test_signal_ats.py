@@ -115,6 +115,8 @@ def test_greenhouse_mapping(sender, tmp_path: Path, mock_boards: Boards) -> None
             "Run outbound sequences to finance leaders in North America\n"
             "You will be our first SDR in India & report to the Head of Sales."
         ),
+        "fresh": None,  # set later by `te signal filter`
+        "india_located": None,
     }
     assert second["posted_at"] == "2026-10-21" and second["location"] == "New York, NY"
     # descriptions come only with ?content=true

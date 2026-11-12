@@ -53,6 +53,8 @@ class Signal(Row):
     first_seen: date
     company_id: str | None = None
     description_text: str | None = None  # plain text from the board's JSON (0003)
+    fresh: bool | None = None  # set by `te signal filter` (0004); None = not yet filtered
+    india_located: bool | None = None  # set by `te signal filter` (0004)
 
 
 class Company(Row):

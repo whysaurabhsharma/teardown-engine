@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 2, Stage 2.1, Steps 21, 23, 24 done (collectors, careers, title classifier); Step 22 waits for a search API key. Next: Step 25.
+Phase 2, Stage 2.1 code done (Steps 21, 23, 24, 25; migration 0004); Step 22 waits for a search API key; Gate 2.1 needs live runs. Next: Step 26.

@@ -17,9 +17,11 @@ For each seed, fetch its careers_url through Guard, then:
    title classifier (Step 24) does that.
 
 Page signals have source="careers", board_slug = the seed's site domain,
-posted_at = None (first_seen stands in, docs/PLAN.md Step 23; a JSON-LD
-datePosted is not used), url = the job's own link when there is one, else the
-careers page. Their id is "cr-{domain}-{sha1(title\\nurl)[:12]}", so a re-run
+posted_at = a JSON-LD JobPosting's datePosted when present and parseable
+(Step 25; read with ats.iso_date, so a datetime with an offset is taken as its
+UTC date), else None and first_seen stands in (docs/PLAN.md Step 23). Other
+page sources (embedded JSON, links, headings) give no post date. url = the
+job's own link when there is one, else the careers page. Their id is "cr-{domain}-{sha1(title\\nurl)[:12]}", so a re-run
 over the same page inserts nothing.
 
 Per-seed outcome: ok | blocked | not_found | dead | robots_denied (Guard's
@@ -194,6 +196,7 @@ class Found:
     how: str  # jsonld | json | link | heading
     location: str | None = None
     description_text: str | None = None
+    posted_at: date | None = None  # JSON-LD datePosted only
 
 
 def _walk(node: Any) -> Iterator[dict[str, Any]]:
@@ -268,6 +271,7 @@ def from_jsonld(soup: BeautifulSoup, base: str) -> list[Found]:
                 how="jsonld",
                 location=_ld_location(obj),
                 description_text=ats.html_to_text(desc, escaped=True) if isinstance(desc, str) else None,
+                posted_at=ats.iso_date(obj.get("datePosted")),
             ))
     return out
 
@@ -372,7 +376,7 @@ def to_signal(seed: Seed, f: Found, today: date) -> Signal:
         company_name_raw=seed.company,
         title=f.title,
         location=f.location,
-        posted_at=None,
+        posted_at=f.posted_at,
         url=url,
         first_seen=today,
         description_text=f.description_text,

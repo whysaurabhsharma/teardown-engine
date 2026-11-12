@@ -206,16 +206,19 @@ def test_jsonld_jobposting(sender, tmp_path: Path, sites: Sites) -> None:
         "role_family": None,
         "offer_type": None,
         "location": "Pune, MH, IN",
-        "posted_at": None,  # datePosted is not used; first_seen stands in
+        "posted_at": "2026-10-30",  # JSON-LD datePosted (Step 25)
         "url": "https://www.parvanta.example/jobs/founding-ae",
         "first_seen": "2026-11-12",
         "company_id": None,
         "description_text": "Close our first 20 mid-market customers.",
+        "fresh": None,  # set later by `te signal filter`
+        "india_located": None,
     }
     assert ae["signal_id"].startswith("cr-parvanta.example-") and len(ae["signal_id"]) == 32
     assert revops["title"] == "Revenue Operations Lead"
     assert revops["url"] == PARVANTA.careers_url  # no link of its own
     assert revops["location"] == "India; Remote"
+    assert revops["posted_at"] is None  # datePosted "last week" does not parse
 
 
 def test_plain_html_list_of_roles(sender, tmp_path: Path, sites: Sites) -> None:
@@ -288,7 +291,7 @@ def test_second_run_inserts_zero_rows(
     assert conn.execute("SELECT count(*) FROM signals").fetchone()[0] == 7
     assert conn.execute(
         "SELECT count(*) FROM signals WHERE source = 'careers' AND posted_at IS NULL"
-    ).fetchone()[0] == 5
+    ).fetchone()[0] == 4  # the fifth has a JSON-LD datePosted
 
 
 # -- manual entry -------------------------------------------------------------------

@@ -503,6 +503,60 @@ def signal_classify(
     sys.exit(1 if rep.errors or rep.stopped else 0)
 
 
+@signal_group.command("filter")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Filter at most this many signals (first by signal_id).")
+@click.option("--company", "company_id", default=None,
+              help="Only signals attached to this company_id.")
+@click.option("--dry-run", is_flag=True, help="Print the counts and write nothing.")
+@click.option("--today", "today_", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help="Run date, YYYY-MM-DD (default: today, UTC).")
+@_db_option
+def signal_filter(
+    limit: int | None,
+    company_id: str | None,
+    dry_run: bool,
+    today_: datetime | None,
+    db_file: Path | None,
+) -> None:
+    """Mark each signal fresh or stale and India-located or not (Step 25).
+
+    Fresh: posted_at, or first_seen when there is no post date, within 60 days
+    of the run date. Stale signals are kept with fresh = 0. Nothing is dropped
+    on location here; india_located is stored for the segment rule (Step 28).
+    A re-run with the same inputs changes nothing.
+    """
+    from engine import db as dbmod
+    from engine.signal import filter as sigfilter
+
+    today = today_.date() if today_ else datetime.now(UTC).date()
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        rep = sigfilter.run(conn, today=today, limit=limit, company_id=company_id,
+                            dry_run=dry_run)
+    finally:
+        conn.close()
+    verb = "would change" if dry_run else "changed"
+    click.echo(f"run date {today.isoformat()}, window {sigfilter.WINDOW_DAYS} days")
+    click.echo(f"signals {rep.total}: fresh {rep.fresh}, stale {rep.stale}, "
+               f"india_located {rep.india_located}; {verb} {rep.changed}")
+    click.echo(f"fresh GTM signals {rep.fresh_gtm}, from seed-list companies "
+               f"{rep.fresh_gtm_seed} (source careers)")
+    if rep.by_source:
+        click.echo("fresh GTM by source: " + ", ".join(
+            f"{k} {v}" for k, v in sorted(rep.by_source.items())))
+    if rep.fresh_gtm_missing:
+        click.echo(f"fresh GTM signals missing a url, offer type or company name "
+                   f"{rep.fresh_gtm_missing}")
+    click.echo("note: seed companies whose careers page handed off to an ATS board are "
+               "stored under that board's source; the hand-off is not recorded, so they "
+               "are not counted as seed-list (the seed-list count is a lower bound)")
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""
