@@ -31,7 +31,7 @@ Families: sdr, ae, sales_lead, revops, gtm_engineer, growth, demand_gen, not_gtm
    | -     | nothing matched                                                           | the model    |
 
 2. The model. A title no rule places goes to the gateway route
-   "title_classifier" (Groq, Cloudflare fallback) with the family enum as the
+   "title_classifier" (Groq, Gemini Flash fallback) with the family enum as the
    output schema. The prompt holds the title and nothing else: no company, no
    person, no URL. The gateway caches on (stage, company_id, prompt_version)
    and ignores the prompt, so the title is put into the key:

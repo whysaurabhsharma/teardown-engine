@@ -240,7 +240,7 @@ def _install(monkeypatch: pytest.MonkeyPatch, groq: Fake, cloudflare: Fake | Non
     for name in list(gateway.PROVIDERS):
         monkeypatch.setitem(gateway.PROVIDERS, name, Fake())
     monkeypatch.setitem(gateway.PROVIDERS, "groq", groq)
-    monkeypatch.setitem(gateway.PROVIDERS, "cloudflare", cloudflare or Fake())
+    monkeypatch.setitem(gateway.PROVIDERS, "gemini", cloudflare or Fake())
 
 
 def fam(f: str) -> dict:

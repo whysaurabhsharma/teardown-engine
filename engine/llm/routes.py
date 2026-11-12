@@ -1,7 +1,8 @@
 """Model routes: which provider and model serve each kind of call, in one place.
 
 From docs/PLAN.md "Models" and "Where the model is allowed":
-- title_classifier: a small fast model (Groq), Cloudflare Workers AI as fallback.
+- title_classifier: a small fast model (Groq), Gemini Flash as fallback (used
+  directly when no Groq key is configured).
 - judge, drafter: the strongest model (Claude Code headless), Gemini as fallback.
 - verifier: Gemini, Groq as fallback; never the family that wrote the claim.
   If the judge itself fell back to Gemini, pass exclude_family="google" to
@@ -39,7 +40,7 @@ ROUTES: dict[str, Route] = {
         Route(
             "title_classifier",
             Target("groq", "llama-3.1-8b-instant"),
-            Target("cloudflare", "@cf/meta/llama-3.1-8b-instruct"),
+            Target("gemini", "gemini-2.5-flash"),
         ),
         Route("judge", Target("claude", "opus"), Target("gemini", "gemini-2.5-pro")),
         Route("verifier", Target("gemini", "gemini-2.5-pro"), Target("groq", "llama-3.3-70b-versatile")),

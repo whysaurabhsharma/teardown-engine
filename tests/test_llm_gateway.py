@@ -221,12 +221,12 @@ def test_unconfigured_provider_falls_back(
 ) -> None:
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     cf = Fake({"family": "sales"})
-    monkeypatch.setitem(gateway.PROVIDERS, "cloudflare", cf)
+    monkeypatch.setitem(gateway.PROVIDERS, "gemini", cf)
     schema = {"type": "object", "required": ["family"]}
     out = gateway.call("title_classifier", company, "titles-v1", "title_classifier",
                        "Title: Founding Account Executive", schema, conn=conn, budget=Budget())
     assert out == {"family": "sales"} and cf.calls == 1
-    assert _rows(conn)[0]["provider"] == "cloudflare"
+    assert _rows(conn)[0]["provider"] == "gemini"
 
 
 def test_every_provider_unavailable_fails_clearly_and_records_nothing(
