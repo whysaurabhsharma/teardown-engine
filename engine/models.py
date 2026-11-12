@@ -83,6 +83,29 @@ class Company(Row):
         return self
 
 
+
+FlagKind = Literal["same_stem", "similar_name", "placeholder_name"]
+
+
+class CompanyFlag(Row):
+    """Two companies that may be one (Step 27, 0006). Never merged automatically."""
+
+    TABLE: ClassVar[str] = "company_flags"
+
+    flag_id: int | None = None
+    company_id: NonBlank  # the lower of the two ids
+    other_company_id: NonBlank
+    kind: FlagKind
+    score: Annotated[float, Field(ge=0, le=100)]
+    detail: NonBlank
+    created_at: str | None = None
+
+    @model_validator(mode="after")
+    def _ordered(self) -> CompanyFlag:
+        if not self.company_id < self.other_company_id:
+            raise ValueError("company_id must sort before other_company_id")
+        return self
+
 class Artifact(Row):
     TABLE: ClassVar[str] = "artifacts"
 
@@ -264,6 +287,6 @@ class Suppression(Row):
 
 
 ALL_MODELS: tuple[type[Row], ...] = (
-    Signal, Company, Artifact, Fact, Contact, Gold,
+    Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression,
 )

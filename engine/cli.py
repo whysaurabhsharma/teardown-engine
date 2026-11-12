@@ -658,6 +658,51 @@ def resolve_cmd(
     sys.exit(1 if rep.errors else 0)
 
 
+@resolve_cmd.command("dedupe")
+@click.option("--company", "company_id", default=None,
+              help="Only flag pairs that include this company_id (the invariant check "
+                   "always covers every company).")
+@click.option("--dry-run", is_flag=True, help="Report and flag nothing; write no flags.")
+@_db_option
+def resolve_dedupe(company_id: str | None, dry_run: bool, db_file: Path | None) -> None:
+    """Check one row per domain and flag possible duplicates (Step 27).
+
+    Reports any domain with more than one row, or signals that point away
+    from their domain's row. Flags pairs with the same name stem on different
+    suffixes (acme.com / acme.in) or names scoring >= 90; flags are stored
+    for the review and never merged. No network, no model calls. Exits 1 when
+    the invariant is broken.
+    """
+    from engine import db as dbmod
+    from engine.resolve import dedupe
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        rep = dedupe.run(conn, company_id=company_id, dry_run=dry_run)
+    finally:
+        conn.close()
+
+    if rep.ok:
+        click.echo(f"invariant ok: {rep.companies} companies, one row per registrable "
+                   "domain, signals on their domain's row")
+    else:
+        click.echo(f"invariant broken: {len(rep.violations)} violation(s); nothing was "
+                   "changed, fix by hand")
+        for v in rep.violations:
+            click.echo(f"  {v}")
+    for f in rep.flags:
+        click.echo(f"flag {f.kind:<16} {f.company_id} <-> {f.other_company_id}  "
+                   f"score {f.score:.0f}  {f.detail}")
+    verb = "would add" if dry_run else "added"
+    click.echo(f"possible duplicates {len(rep.flags)}; {verb} {rep.new_flags} new flag(s); "
+               "never merged")
+    sys.exit(0 if rep.ok else 1)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

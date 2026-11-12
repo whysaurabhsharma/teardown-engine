@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 2: Stage 2.1 code done (21, 23-25); Step 26 done (resolve domains, migration 0005). Step 22 waits for a search API key; Gate 2.1 needs live runs. Next: Step 27.
+Phase 2: Stage 2.1 code done (21, 23-25); Steps 26-27 done (resolve, dedupe flags; migrations 0005-0006). Step 22 waits for a search API key; Gate 2.1 needs live runs. Next: Step 28.
