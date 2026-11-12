@@ -72,6 +72,7 @@ class Company(Row):
     hand: bool = False
     created_at: str | None = None
     updated_at: str | None = None
+    review_reason: str | None = None  # "<code>: <detail>" when a person must look (0005)
 
     @model_validator(mode="after")
     def _drop_fields(self) -> Company:

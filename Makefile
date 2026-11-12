@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers backup verify
+.PHONY: test smoke signal careers resolve backup verify
 
 test:
 	uv run pytest
@@ -19,3 +19,6 @@ backup:
 
 verify:
 	uv run te verify
+
+resolve:
+	uv run te resolve --seeds $(SEEDS)

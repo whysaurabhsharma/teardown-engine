@@ -1,11 +1,12 @@
--- engine/schema.sql: the current full schema (version 4), for reading.
+-- engine/schema.sql: the current full schema (version 5), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
 
 -- description_text was added by 0003_signal_description, fresh and india_located
--- by 0004_signal_filter; they are laid out the way SQLite stores an ALTER TABLE
--- ADD COLUMN so this file matches the migrated database.
+-- by 0004_signal_filter, companies.review_reason by 0005_company_review; they
+-- are laid out the way SQLite stores an ALTER TABLE ADD COLUMN so this file
+-- matches the migrated database.
 CREATE TABLE signals (
     signal_id        TEXT PRIMARY KEY,
     source           TEXT NOT NULL,
@@ -38,7 +39,7 @@ CREATE TABLE companies (
     pilot          INTEGER NOT NULL DEFAULT 0 CHECK (pilot IN (0, 1)),
     hand           INTEGER NOT NULL DEFAULT 0 CHECK (hand IN (0, 1)),
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), review_reason TEXT,
     CHECK ((status = 'dropped') = (drop_reason IS NOT NULL AND drop_stage IS NOT NULL))
 );
 CREATE INDEX companies_status ON companies(status);

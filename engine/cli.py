@@ -557,6 +557,107 @@ def signal_filter(
                "are not counted as seed-list (the seed-list count is a lower bound)")
 
 
+@main.group("resolve", invoke_without_command=True)
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Resolve at most this many companies (groups of signals).")
+@click.option("--company", "company_id", default=None,
+              help="Only this company: a seed's company_id (e.g. zentrico-example), a "
+                   "placeholder id (unresolved-...), or a board as source:slug.")
+@click.option("--dry-run", is_flag=True, help="Print the projected requests and exit.")
+@click.option("--seeds", "seeds_file", type=click.Path(dir_okay=False, path_type=Path),
+              default=Path("data") / "seeds.csv", show_default=True,
+              help="Seed list CSV; seed companies resolve to their own site.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on requests (default 500).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+@click.pass_context
+def resolve_cmd(
+    ctx: click.Context,
+    limit: int | None,
+    company_id: str | None,
+    dry_run: bool,
+    seeds_file: Path,
+    max_fetches: int | None,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Find and verify each company's official domain (Step 26).
+
+    Reads fresh GTM signals with no company. A domain is verified when the
+    homepage title or og:site_name matches the company name (>= 85) and the
+    site links back to the same ATS board (or, for seeds, the careers page is
+    on the same domain). One check or none leaves the company at `sourced`
+    with a review_reason. No model calls.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    from engine import db as dbmod
+    from engine.guard import search_api
+    from engine.guard.budget import Budget, BudgetExceeded, format_projection, project
+    from engine.guard.cache import Cache
+    from engine.guard.http import Guard, GuardConfigError
+    from engine.resolve import domain
+    from engine.signal.seeds import SeedsError, load_seeds
+
+    try:
+        seeds = load_seeds(seeds_file)
+    except FileNotFoundError:
+        click.echo(f"no seed file at {seeds_file}; resolving without seeds")
+        seeds = []
+    except SeedsError as e:
+        _fail(str(e))
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    budget = Budget() if max_fetches is None else Budget(max_fetches=max_fetches)
+    cache = Cache(cache_dir)
+    try:
+        groups = domain.select_groups(conn, seeds, cache, company_id=company_id, limit=limit)
+        if dry_run:
+            by_kind: dict[str, int] = {}
+            for g in groups:
+                by_kind[g.kind] = by_kind.get(g.kind, 0) + 1
+            click.echo(f"companies to resolve {len(groups)}"
+                       + (": " + ", ".join(f"{k} {v}" for k, v in sorted(by_kind.items()))
+                          if by_kind else ""))
+            click.echo(format_projection(project(domain.projected_urls(groups), cache), budget))
+            click.echo(f"each candidate domain adds its homepage and up to "
+                       f"{domain.MAX_CAREERS_PAGES} careers pages (and robots.txt); at most "
+                       f"{domain.MAX_CANDIDATES} candidates per company")
+            if not search_api.is_configured():
+                click.echo("search provider not configured: companies with no candidate "
+                           "domain will be marked for review")
+            return
+
+        async def go() -> domain.Report:
+            async with Guard(cache=cache, budget=budget) as g:
+                return await domain.run(conn, groups, g, cache=cache, budget=budget)
+
+        try:
+            rep = asyncio.run(go())
+        except (GuardConfigError, BudgetExceeded) as e:
+            _fail(str(e))
+            return
+    finally:
+        conn.close()
+
+    for out in rep.outcomes:
+        state = "error" if out.error else ("verified" if out.verified else "needs_review")
+        detail = out.error or out.reason
+        click.echo(f"{out.group.key[:40]:<40}  {state:<12} {out.company_id or '-':<30} {detail}")
+    click.echo(f"companies {rep.groups}: verified {rep.verified}, needs_review "
+               f"{sum(rep.needs_review.values())}, errors {len(rep.errors)}; "
+               f"signals attached {rep.attached}")
+    for code, n in sorted(rep.needs_review.items()):
+        click.echo(f"  needs_review {code:<22} {n}")
+    sys.exit(1 if rep.errors else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""
