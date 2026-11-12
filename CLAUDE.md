@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 2 code done through Steps 30-31 tooling (te resolve review, te company add --hand, te pilot; migration 0008). Gates 2.1-2.3 need live runs and human review. Next: Phase 3, Step 32-34 (capture).
+PAUSED. Phase 2 code done (through Steps 30-31 tooling). Steps 32-34 (capture) partly built, committed as wip, untested. Next: Phase 2 live run once SENDER_EMAIL and GOOGLE_API_KEY are in .env; then finish Steps 32-34.

@@ -14,7 +14,8 @@ whole-word, using the same matching as the model gateway's contacts guard.
 Touches lose hubspot_deal_id (it links to a person in HubSpot).
 
 Text extraction does not exist yet, so an artifact's text is its raw cached
-body decoded as UTF-8 with errors replaced; record.json notes this per artifact.
+body (found by body_sha256, or text_sha256 on rows from before migration 0009)
+decoded as UTF-8 with errors replaced; record.json notes this per artifact.
 
 Output is deterministic: the company folder is rewritten from scratch, keys are
 sorted and rows ordered by primary key, so a re-run on unchanged inputs writes
@@ -146,7 +147,9 @@ def export_company(
 
     texts: dict[str, str] = {}
     for art in record["artifacts"]:
-        body, note = _body(cache, art.get("text_sha256"), art.get("cache_path"))
+        # body_sha256 (0009) names the raw body; older rows only had text_sha256.
+        sha = art.get("body_sha256") or art.get("text_sha256")
+        body, note = _body(cache, sha, art.get("cache_path"))
         art.pop("cache_path", None)  # a local path; the text file replaces it
         art["text_note"] = note
         if body is None:

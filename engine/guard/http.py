@@ -280,6 +280,20 @@ class Guard:
                 requests=ctr.n - start,
             )
 
+    def now(self) -> datetime:
+        """The run's clock (UTC); injectable for tests."""
+        return self._now()
+
+    async def robots_check(self, url: str) -> tuple[Outcome, str] | None:
+        """None if robots.txt allows url; otherwise (outcome, detail) to record
+        instead of fetching. robots.txt itself is fetched, paced and cached as in
+        fetch(). For guard.browser, which must obey the same rule."""
+        url = _normalise(url)
+        if _is_robots(url):
+            return None
+        done = await self._robots_verdict(url, _Counter())
+        return None if done is None else (done.outcome, done.detail)
+
     def _from_cache(self, entry: CacheEntry, kind: str) -> FetchResult:
         body = self.cache.get_body(entry.sha256) if entry.sha256 else None
         return FetchResult(

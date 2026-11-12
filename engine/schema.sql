@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 8), for reading.
+-- engine/schema.sql: the current full schema (version 9), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -154,8 +154,13 @@ CREATE TABLE artifacts (
     fetched_at  TEXT NOT NULL,
     text_sha256 TEXT,
     cache_path  TEXT
-);
+, status INTEGER, body_sha256 TEXT, fetcher TEXT
+    CHECK (fetcher IS NULL OR fetcher IN ('http', 'playwright', 'dns', 'none')), detail TEXT, bundle_version TEXT);
 CREATE INDEX artifacts_company ON artifacts(company_id, kind);
+
+-- 0009_artifact_capture: status, body_sha256, fetcher, detail and bundle_version
+-- are written by E3 capture (engine/capture/); one row per (company_id, kind).
+CREATE UNIQUE INDEX artifacts_company_kind ON artifacts(company_id, kind);
 
 CREATE TABLE facts (
     fact_id           INTEGER PRIMARY KEY AUTOINCREMENT,
