@@ -1,5 +1,7 @@
 """Command-line entry point: `te`."""
 
+import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -15,9 +17,16 @@ STUB_COMMANDS = (
 )
 
 
+NO_DOTENV_ENV_VAR = "TE_NO_DOTENV"  # set by the test suite so .env is never loaded
+
+
 @click.group()
 def main() -> None:
     """Teardown engine."""
+    if not os.environ.get(NO_DOTENV_ENV_VAR):
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True))
 
 
 def _make_stub(name: str) -> click.Command:
@@ -143,6 +152,52 @@ def status_cmd(db_file: Path | None) -> None:
     for status, n in counts.items():
         click.echo(f"{status.value:<{width}}  {n}")
     click.echo(f"{'total':<{width}}  {sum(counts.values())}")
+
+
+@main.command("fetch")
+@click.argument("urls", nargs=-1, required=True)
+@click.option("--kind", default="page", show_default=True, help="Artifact kind label.")
+@click.option("--fresh", is_flag=True, help="Bypass today's cache (send-day rechecks only).")
+@click.option("--dry-run", is_flag=True, help="Print the projected request count and exit.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on requests (default 500).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+def fetch_cmd(
+    urls: tuple[str, ...],
+    kind: str,
+    fresh: bool,
+    dry_run: bool,
+    max_fetches: int | None,
+    cache_dir: Path | None,
+) -> None:
+    """Fetch URLs through Guard and print each outcome."""
+    from engine.guard.budget import Budget, BudgetExceeded, format_projection, project
+    from engine.guard.cache import Cache
+    from engine.guard.http import Guard, GuardConfigError
+
+    budget = Budget() if max_fetches is None else Budget(max_fetches=max_fetches)
+    cache = Cache(cache_dir)
+    if dry_run:
+        click.echo(format_projection(project(list(urls), cache, fresh=fresh), budget))
+        return
+
+    async def run() -> int:
+        async with Guard(cache=cache, budget=budget) as g:
+            for url in urls:
+                r = await g.fetch(url, kind, fresh=fresh)
+                src = "cache" if r.from_cache else f"{r.requests} req"
+                status = r.status if r.status is not None else "-"
+                note = f"  {r.detail}" if r.detail else ""
+                click.echo(f"{r.outcome:<13} {status!s:>3}  {src:<7} {url}{note}")
+            return g.requests_made
+
+    try:
+        made = asyncio.run(run())
+    except (GuardConfigError, BudgetExceeded, ValueError) as e:
+        _fail(str(e))
+        return
+    click.echo(f"requests sent: {made}")
 
 
 if __name__ == "__main__":

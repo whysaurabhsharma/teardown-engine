@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 1, Stage 1.3, Step 17 done (schema, state machine, migrations, backup). Next: Step 18.
+Phase 1, Stage 1.3, Step 18 done (Guard: http, cache, ratelimit, budget, robots). Next: Step 19.
