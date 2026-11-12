@@ -7,6 +7,7 @@ Build an outbound engine that finds Indian SaaS companies and US startups with I
 ## What changed in this version
 
 Version 2 fixes seventeen weaknesses found by reading version 1 as a sceptic would. Three mattered most: the plan built for twelve days before testing whether anyone replies; the judge was examined on the same examples it was taught with; and the email never said what you want.
+
 | # | Weakness in version 1 | Why it mattered | Fix in this version | Where |
 | --- | --- | --- | --- | --- |
 | 1 | No test of the premise before building | Twelve days of code before the first reply could arrive | Six teardowns researched, written and sent by hand in days 1 to 3; three a week by hand during the build | Phase 0 |
@@ -37,6 +38,7 @@ What ships:
 - 70 to 80 teardowns in total. Each names what the new hire will need, backs it with quoted evidence, and attaches a working proof slice built for that company.
 - A measured campaign in HubSpot: reply rate, meeting rate and hours per meeting, split by segment.
 - A public write-up and a public repo. Code and aggregate numbers only. No company names, no contact data.
+
 | Level | Observable test | When you know |
 | --- | --- | --- |
 | Stop and rethink | No reply to any of the first 15 sends after 7 working days each | Week 4 |
@@ -77,6 +79,7 @@ Nine decisions carry the project. Everything else is implementation. If a shortc
 Eight engines, each a folder, a CLI command and a contract. Seven run in sequence; the eighth, Guard, wraps all of them. Build them in order: each is useless until the one before it works, which stops you building two unproven layers at once.
 
 Read it left to right, then down. The first row is deterministic and free; a model appears only at Judge and Build. You sit between Build and Outreach, and nothing passes without your approval. A company can leave at Resolve, at Judge or at your review, each time with a logged reason.
+
 | Engine | Job | Reads → writes | Main failure mode | Done when |
 | --- | --- | --- | --- | --- |
 | E1 Signal | Collect GTM job posts three ways: public ATS endpoints, careers pages of seed companies, and manual entry | web → signals | Collecting posts nobody can act on; a thin Indian SaaS list | Every signal has a company, a role family, an offer type, a location and a post date |
@@ -91,13 +94,18 @@ Read it left to right, then down. The first row is deterministic and free; a mod
 ### The company state machine
 
 Every company holds exactly one status. An engine picks up companies in the status it consumes and moves them to the next.
-```
 
+```
+sourced → resolved → qualified → captured → extracted → diagnosed → built
+        → approved → sent → replied → meeting → closed
+
+any state → dropped (with drop_reason and drop_stage)
 ```
 
 Three rules make this safe. A status only moves forward, or to `dropped`. Every engine command accepts `--company <id>` and `--limit <n>`, so you can re-run one company or a small batch without touching the rest. And the six companies you write to by hand in Phase 0 are entered later with `hand = 1` at status `sent`, so their results sit in the same tables as everything else.
 
 ### Where the model is allowed
+
 | Step | Model used? | Why |
 | --- | --- | --- |
 | Collecting, deduping, fetching, hashing | No | Deterministic work stays deterministic and free |
@@ -113,6 +121,7 @@ Three rules make this safe. A status only moves forward, or to `dropped`. Every 
 Nothing here costs money at this scale beyond the Claude subscription you already pay for, and most of it you already have. Read every limit on your own dashboard in Phase 1 and write it into `protocol/BUDGET.md`; the figures below are what was published in November 2026.
 
 ### Language and core libraries
+
 | Tool | Job in this build |
 | --- | --- |
 | Python 3.12 + uv | Runtime and dependency management |
@@ -133,6 +142,7 @@ Nothing here costs money at this scale beyond the Claude subscription you alread
 | pytest, ruff | Tests and lint, run by make test |
 
 ### Sourcing
+
 | Source | How you read it | Best for |
 | --- | --- | --- |
 | Greenhouse boards | GET https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true | US startups with India teams |
@@ -147,6 +157,7 @@ Nothing here costs money at this scale beyond the Claude subscription you alread
 LinkedIn and Naukri are never read by code. Their terms forbid automated collection. You may look at them yourself and type what you find into `te signal add`.
 
 ### Models
+
 | Role | First route | Fallback | Why |
 | --- | --- | --- | --- |
 | Job-title classification | Groq, small fast model | Cloudflare Workers AI | High volume, trivial task, cached by title |
@@ -157,6 +168,7 @@ LinkedIn and Naukri are never read by code. Their terms forbid automated collect
 Run `claude -p` without `--bare`. Bare mode skips your subscription login and needs an API key; the normal mode uses your plan and loads `CLAUDE.md` and your skills. Free model tiers may use prompts to improve their products, which is one more reason only public company pages ever go into a prompt.
 
 ### People and email
+
 | Tool | Job | Free allowance as published |
 | --- | --- | --- |
 | Hunter | Email finder and verifier | 50 credits a month |
@@ -165,6 +177,7 @@ Run `claude -p` without `--bare`. Bare mode skips your subscription login and ne
 | Gmail API | Creates first-touch drafts in your mailbox; you press send | Free with your Google account |
 
 ### Outreach, tracking and hosting
+
 | Tool | Job | Notes |
 | --- | --- | --- |
 | A shared document | Hosts the six hand-made teardowns in Phase 0 | A Google Doc or Notion page set to "anyone with the link can view" |
@@ -188,6 +201,7 @@ You already hold Groq, Google AI Studio, Cloudflare, Tavily, Exa, GitHub and Hub
 ## Data contracts and repo layout
 
 Eleven tables in one SQLite file. Freeze these shapes in Phase 1; every engine reads and writes only these, which is what lets you rebuild one engine without touching the others. The schema carries a version number in `PRAGMA user_version`, and every change to it is a numbered migration.
+
 | Table | One row per | Written by | Key columns |
 | --- | --- | --- | --- |
 | signals | Job post | E1 | signal_id, source, board_slug, title, role_family, offer_type, location, posted_at, url, company_name_raw |
@@ -205,20 +219,40 @@ Eleven tables in one SQLite file. Freeze these shapes in Phase 1; every engine r
 `contacts` is the only table holding personal data. No engine other than People and Outreach reads it, and nothing in it is ever placed in a prompt.
 
 ### The four records that matter most
+
+```
+// signals row: E1 output
+{"signal_id": "gh-acme-4411", "source": "greenhouse", "board_slug": "acme",
+ "company_name_raw": "Acme", "title": "Founding SDR", "role_family": "sdr",
+ "offer_type": "adjacent", "location": "Bengaluru, India", "posted_at": "2026-11-03",
+ "url": "https://job-boards.greenhouse.io/acme/jobs/4411", "first_seen": "2026-11-12"}
 ```
 
 ```
-
+// facts row: E4 output. Every fact carries the quote that proves it.
+{"company_id": "acme-com", "fact": "pricing_model", "value": "contact_sales",
+ "artifact_kind": "pricing", "quote": "Talk to our team for a custom quote",
+ "char_start": 1840, "extractor_version": "ex-1.0"}
 ```
 
 ```
-
+// diagnoses row: E5 output
+{"company_id": "acme-com", "prompt_version": "j-1.2", "attempted": true,
+ "gap_type": "G1_hiring_ahead_of_targeting", "confidence": 0.7,
+ "claims": [
+   {"text": "The SDR role asks the hire to build target lists from scratch.",
+    "artifact_kind": "job_post", "quote": "build and own target account lists from scratch"},
+   {"text": "The site shows no segment or industry pages to target against.",
+    "artifact_kind": "homepage", "quote": "Built for modern teams"}],
+ "abstain_reason": null, "faithfulness": {"checked": 2, "passed": 2},
+ "verifier_verdict": "supported"}
 ```
 
 ```
-
-```
-
+// touches row: E7 output
+{"company_id": "acme-com", "touch_no": 1, "channel": "email",
+ "sent_at": "2026-11-24T04:35:00Z", "outcome": "replied_positive",
+ "reply_at": "2026-11-25T09:10:00Z", "hubspot_deal_id": "1234567"}
 ```
 
 Five rules that save the project:
@@ -229,8 +263,45 @@ Five rules that save the project:
 - `te backup` copies `engine.db` to `data/backups/` with a date stamp. It runs automatically before every migration and at the end of every `make` target that writes.
 
 ### Repo layout
-```
 
+```
+teardown-engine/
+├── CLAUDE.md                  # standing instructions for Claude Code
+├── .claude/                   # settings.json, skills/, agents/
+├── Makefile                   # smoke signal resolve capture extract people judge build queue sync metrics backup demo test verify
+├── pyproject.toml  uv.lock  .python-version  .gitignore  .gitattributes
+├── .env                       # gitignored; you create it by hand
+├── docs/PLAN.md               # this document
+├── protocol/
+│   ├── OFFER.md               # what you are offering, per role family
+│   ├── ICP.md                 # who qualifies, who is excluded, segment rules
+│   ├── GAPS.md                # the five gaps; versioned
+│   ├── CONDUCT.md             # scraping and email rules
+│   ├── TEARDOWN_SPEC.md       # page sections, word limits, banned phrases
+│   ├── HAND_NOTES.md          # what Phase 0 taught you
+│   └── BUDGET.md              # limits read off your own dashboards
+├── engine/
+│   ├── cli.py                 # typer app exposed as `te`
+│   ├── db.py  schema.sql  migrations/  models.py  states.py
+│   ├── guard/     http.py  ratelimit.py  cache.py  budget.py  robots.py  backup.py  smoke.py
+│   ├── llm/       gateway.py  claude_headless.py  groq.py  gemini.py  cloudflare.py
+│   ├── signal/    greenhouse.py  lever.py  ashby.py  workable.py  careers.py  manual.py  discover.py  classify.py
+│   ├── resolve/   domain.py  dedupe.py  segment.py  qualify.py  review.py
+│   ├── capture/   discover_pages.py  fetch.py  dns.py  extract_text.py  bundle.py
+│   ├── extract/   pricing.py  cta.py  forms.py  roles.py  stack.py  customers.py  jd.py  patterns.yaml
+│   ├── people/    recipient.py  email.py
+│   ├── judge/     prompt.md  schema.json  judge.py  faithfulness.py  verify.py  score.py
+│   ├── build/     slices/icp_accounts.py  slices/funnel_compare.py  slices/role_funnel.py  draft.py  render.py  templates/  quality.py
+│   └── outreach/  queue.py  gmail.py  followups.py  hubspot.py  replies.py  metrics.py  prep.py
+├── tests/                     # fixtures are invented companies only
+├── report/                    # figures and the write-up
+├── debug/                     # gitignored; redacted exports Claude Code may read
+├── data/                      # gitignored, all of it
+│   ├── engine.db
+│   ├── backups/
+│   ├── cache/                 # raw responses, keyed by hash
+│   └── seeds.csv
+└── site/                      # gitignored; rendered teardown pages, deployed with wrangler
 ```
 
 `data/` and `site/` never enter git. The public repo holds code, protocol documents and synthetic fixtures, so you can open it to anyone without exposing a company or a person.
@@ -238,6 +309,7 @@ Five rules that save the project:
 ## The two segments and the two offers
 
 Same engine, two buyers, two arguments. Aim for at least 25 sends in each segment and let the rest follow whichever answers. The segment tag set in E2 chooses the framing and the send time; the offer type set in E1 chooses what you ask for.
+
 |  | Indian SaaS | US startups with India teams |
 | --- | --- | --- |
 | Who | HQ in India, B2B software, roughly 10 to 300 people, selling to Indian SMBs or to the US from India | HQ outside India, seed to Series B, with a sales or SDR pod in Bengaluru, Hyderabad, Pune, Gurugram, Mumbai or Chennai |
@@ -253,6 +325,7 @@ Same engine, two buyers, two arguments. Aim for at least 25 sends in each segmen
 ### What you are offering, `protocol/OFFER.md`
 
 The open role decides your position. Write this file in Step 1 and never blur the two.
+
 | Offer type | Role families | Who you are to them | What you do |
 | --- | --- | --- | --- |
 | candidate | GTM engineer, RevOps, growth, a founding or first GTM hire | An applicant who arrives with proof | Apply through their ATS, then send the teardown to the hiring manager. The email says you have applied |
@@ -269,6 +342,7 @@ A company qualifies when all of these hold:
 - You can name a recipient and reach them by email or LinkedIn.
 
 A company is dropped, with the reason logged, when any of these hold:
+
 | Drop reason | Rule |
 | --- | --- |
 | staffing_or_agency | A recruiter, staffing firm or outsourcing shop posting on a client's behalf |
@@ -291,6 +365,7 @@ The teardown is the product. Everything upstream exists to make this one page sp
 ### The five gaps, `protocol/GAPS.md`
 
 Each gap starts from what the new hire will need on day one. The judge must pick one or abstain. Each needs evidence from at least two different artifacts and maps to one proof slice. Rewrite this file from what Phase 0 teaches you before any code reads it.
+
 | ID | What the hire will need | What the pages suggest is missing | Evidence required | Abstain when | Proof slice |
 | --- | --- | --- | --- | --- | --- |
 | G1 | A defined target. Who to call first | No visible definition of the ideal customer | The post asks the hire to build lists or define the ICP; the site has no segment, industry or use-case pages; the customers page is mixed or absent | The site names clear segments, or the post names target accounts | icp_accounts |
@@ -306,6 +381,7 @@ A company can show several gaps. The judge returns the one with the strongest ev
 ### The page, `protocol/TEARDOWN_SPEC.md`
 
 One page, under 450 words excluding the proof slice. Eight sections, always in this order.
+
 | # | Section | Content | Limit |
 | --- | --- | --- | --- |
 | 1 | Header | "{Company}: notes for your {role} hire", the date, your name | One line |
@@ -333,18 +409,52 @@ The footer carries your postal address, one sentence on how to opt out, and a li
 Under 120 words. One observation, one link, the offer stated, one small ask. The link goes to the page, with no attachment, no tracking pixel and no shortener.
 
 For a `candidate` signal:
-```
 
+```
+Subject: Applied for {role} at {Company}, with notes
+
+Hi {first_name},
+
+I applied for the {role} role at {Company} today. Alongside the CV, I looked
+at what that hire will need on day one. {One sentence: the specific thing
+the public pages show.}
+
+I wrote it up and built {the proof slice, named concretely} for you: {link}
+
+If it is useful, I would value 15 minutes. If I have misread something, I
+would like to hear that too.
+
+Saurabh
+{one-line identity} · {postal address}
+Not relevant? Reply "no" and I will not write again.
 ```
 
 For an `adjacent` signal:
-```
 
+```
+Subject: {Company}'s {role} hire: {three-word observation}
+
+Hi {first_name},
+
+I saw {Company} is hiring a {role}. {One sentence: what that hire will need,
+and what the public pages suggest is missing.}
+
+I wrote up what I found and built {the proof slice, named concretely} for
+you: {link}
+
+I build outbound and enrichment systems. I am looking for a GTM engineer
+role and am also open to a short project. If the notes are useful, could we
+talk for 15 minutes?
+
+Saurabh
+{one-line identity} · {postal address}
+Not relevant? Reply "no" and I will not write again.
 ```
 
 ### Follow-ups
 
 Three touches at most, then stop for good.
+
 | Touch | When | Content | How |
 | --- | --- | --- | --- |
 | 1 | Day 0 | The email above | Gmail draft made by the engine; you send |
@@ -372,6 +482,7 @@ Phase 0 sends six teardowns made entirely by you, with a browser and a document,
 Step 1. Write `OFFER.md`. One page, kept on your desktop until the repo exists. Your one-line identity. The two offer types from the segments section, in your own words. What you would say yes to: role, location, working pattern. And a list of companies you will not contact, with the reason.
 
 Step 2. Choose the mailbox. Decide once; changing it mid-campaign splits your threads.
+
 | Option | Use it when | Watch for |
 | --- | --- | --- |
 | A personal Gmail address | The default. Google handles mail authentication, and five to eight one-to-one emails a day is ordinary use | It reads as personal, which suits a job search |
@@ -380,8 +491,11 @@ Step 2. Choose the mailbox. Decide once; changing it mid-campaign splits your th
 | A domain registered this week | Never for this project | It has no reputation and will land in spam |
 
 For a domain you own, check the three records, then send one message to another mailbox, open "Show original", and confirm SPF, DKIM and DMARC all read PASS:
-```
 
+```
+nslookup -type=txt yourdomain.com
+nslookup -type=txt _dmarc.yourdomain.com
+nslookup -type=txt google._domainkey.yourdomain.com
 ```
 
 Step 3. Write your sender block. Your name, the one-line identity, a postal address where you can receive mail, and the opt-out sentence. It goes at the foot of every email and every page.
@@ -405,6 +519,7 @@ Gate 0.2: six teardowns sent, each one timed.
 Step 8. Write `HAND_NOTES.md`. Four short lists. Which pages and facts you actually used, which tells you the extractors worth building. Where the minutes went, which tells you what the engine must automate first. Every judgment call you made, which becomes rules in `GAPS.md`. What you could not learn from outside, which feeds section 7 and the abstain conditions. Then revise the five gaps and the page spec from what you learned.
 
 Step 9. Decide, on day 10. Replies take days, so the build continues meanwhile. Phases 1 to 3 are useful under every outcome below.
+
 | What you see | Decision |
 | --- | --- |
 | At least one reply | Continue as planned |
@@ -423,29 +538,73 @@ Phase 1 produces an empty engine that can talk to every provider and store state
 ### Stage 1.1 · Environment
 
 Step 10. Create the repo. In PowerShell:
-```
 
+```
+cd D:\dev
+mkdir teardown-engine
+cd teardown-engine
+git init
+git branch -M main
+mkdir docs, protocol
+code -r .
 ```
 
 Step 11. Bring in what you already wrote. Export this document as Markdown and save it as `docs\PLAN.md`. Move `OFFER.md` and `HAND_NOTES.md` from Phase 0 into `protocol\`. Claude Code reads the plan for context; it is reference, never a to-do list.
 
 Step 12. Scaffold with Claude Code. Start `claude` in the VS Code terminal, switch off auto mode with Shift+Tab, and paste:
-```
 
+```
+Read docs/PLAN.md for context. Build only the skeleton. Write no engine logic.
+
+1. uv init --bare, Python 3.12. Add: typer pydantic httpx selectolax tldextract
+   dnspython tenacity rapidfuzz jinja2 pyyaml python-dotenv. Dev: pytest ruff.
+   Do not add the Gmail client or playwright yet; later steps add them.
+2. Create the directory layout from the "Repo layout" section, with empty
+   placeholder modules. Expose the typer app in engine/cli.py as the `te`
+   command via [project.scripts].
+3. Makefile with stub targets: smoke signal resolve capture extract people judge
+   build queue sync metrics backup demo test verify. Each stub echoes
+   "<target>: not implemented" and exits 1. `make test` runs `uv run pytest`.
+4. .gitignore: data/ site/ debug/ .env keys.txt .venv/ __pycache__/ *.db
+5. .gitattributes: * text=auto eol=lf
+6. LICENSE (MIT).
+
+Leave docs/ and protocol/ as they are. Create nothing inside data/, site/ or
+debug/. Do not commit. Show me git status --short when done.
 ```
 
 Review the status, then ask it to commit as `skeleton: layout, stubs, licence`.
 
 Step 13. Create `.env` yourself. Never through Claude Code, so no key passes through a model:
-```
 
+```
+GROQ_API_KEY=
+GOOGLE_API_KEY=
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
+TAVILY_API_KEY=
+EXA_API_KEY=
+HUNTER_API_KEY=
+SENDER_NAME=
+SENDER_EMAIL=
+SENDER_POSTAL_ADDRESS=
 ```
 
 Run `git status --short` and confirm `.env` does not appear. `HUBSPOT_TOKEN` and `TEARDOWN_BASE_URL` join it in Phases 4 and 5.
 
 Step 14. Build the smoke test. Prompt:
-```
 
+```
+Implement `make smoke` as engine/guard/smoke.py. For each of Groq, Gemini,
+Cloudflare Workers AI, Tavily, Exa and Hunter: make exactly one minimal
+authenticated call and print provider, HTTP status, latency, and any
+rate-limit headers returned. For Hunter call the account endpoint, which
+spends no credit. Read keys from .env. Never print a key. Exit non-zero if any
+provider fails.
+
+Also run the claude CLI once through subprocess with an argument list:
+["claude", "-p", "--output-format", "json"], prompt "reply with OK" on stdin.
+Confirm the output parses as JSON. Write a test that mocks every provider.
 ```
 
 Copy the observed limits into `protocol/BUDGET.md` by hand.
@@ -463,13 +622,50 @@ Gate 1.2: a fresh Claude Code session, asked what it must never do in this repo,
 ### Stage 1.3 · Core
 
 Step 17. Build the schema, the state machine, migrations and backup. Prompt:
-```
 
+```
+Implement engine/schema.sql, engine/migrations/, engine/models.py, engine/db.py,
+engine/states.py and engine/guard/backup.py from the "Data contracts" section
+of docs/PLAN.md.
+
+- All eleven tables. facts.quote and every diagnoses claim quote are NOT NULL.
+- Schema version lives in PRAGMA user_version. migrations/ holds numbered SQL
+  files; `te db migrate` applies any that are newer, after taking a backup.
+- models.py: one pydantic model per table row. diagnoses.attempted is a
+  required bool with no default.
+- states.py: the status enum and advance(company_id, to_status), which raises
+  on any backward move. drop(company_id, reason, stage) is the only other
+  transition.
+- backup.py: `te backup` copies data/engine.db to data/backups/ with a
+  timestamp and keeps the newest 14.
+- `te db init` creates data/engine.db. `te status` prints a count per status.
+- Tests: a backward transition raises; a fact without a quote is rejected; a
+  diagnosis without `attempted` fails validation; migrate takes a backup.
 ```
 
 Step 18. Build Guard before any engine. Prompt:
-```
 
+```
+Implement engine/guard/. This is the only code allowed to touch the network.
+
+http.py: async fetch(url, kind) using httpx. Rules:
+- User-Agent: "teardown-engine/0.1 (+<repo url>; research; contact <SENDER_EMAIL>)"
+- at most 1 request per second per host, at most 4 in flight overall
+- 20 second timeout, 2 MB cap per response, follow up to 5 redirects
+- check robots.txt via urllib.robotparser before any page fetch; a disallowed
+  URL returns outcome "robots_denied" without fetching
+- outcome enum: ok | not_found | blocked | dead | robots_denied
+  (403/429/challenge pages are "blocked", not errors)
+- on 429 or 503 honour Retry-After; retry at most once
+cache.py: every response body is stored under data/cache/<sha256>. A repeat
+  fetch of the same URL on the same day reads the cache and makes no request.
+  fetch(..., fresh=True) bypasses the cache for send-day rechecks.
+ratelimit.py: token bucket per provider, limits loaded from protocol/BUDGET.md.
+budget.py: a per-run ceiling on fetches and model calls; `--dry-run` prints the
+  projected count and exits.
+
+Tests with a local test server: per-host pacing holds, second fetch is a cache
+hit, robots disallow is respected, 403 becomes "blocked".
 ```
 
 Step 19. Build the model gateway. `engine/llm/gateway.py` exposes one function, `call(stage, company_id, prompt_version, route, prompt, schema)`. It checks `llm_calls` for the key first, validates output against the schema, retries once with the validation error appended, falls back to the route's second provider on a quota error, and records tokens. `claude_headless.py` runs `claude` through `subprocess` with an argument list, sends the prompt on standard input, and reads `structured_output`. The gateway refuses any prompt containing a value from the `contacts` table.
@@ -485,8 +681,10 @@ Phase 2 turns the public job market into about 40 qualified companies, then pick
 ### Stage 2.1 · Signal collectors (E1)
 
 Step 21. Build the four ATS collectors. Prompt:
+
 ```
- list[Signal] and fetches only through
+Implement engine/signal/greenhouse.py, lever.py, ashby.py, workable.py.
+Each exposes collect(board_slug) -> list[Signal] and fetches only through
 guard.http. Endpoints are in the "Sourcing" table of docs/PLAN.md.
 
 Normalise every job to the Signal model: signal_id, source, board_slug,
@@ -498,7 +696,7 @@ company_name_raw, title, location, posted_at, url, description_text.
   board with nothing open. Record both; raise on neither.
 - Store the raw JSON through the cache.
 Tests: one recorded fixture per ATS with invented company names. Assert field
-mapping and that a second run inserts zero new rows.]]>
+mapping and that a second run inserts zero new rows.
 ```
 
 Step 22. Discover boards for the US-with-India segment. Query Exa or Tavily with a role term and an Indian city, restricted to the ATS hostnames with the API's domain filter: `job-boards.greenhouse.io`, `boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`, `apply.workable.com`. Eight role terms by ten city terms is 80 queries. Extract the slug from each result URL with a regex per host. Search only finds the board; the board's own JSON is the source of truth for what is open.
@@ -543,6 +741,7 @@ Phase 3 gives each company a frozen evidence bundle, a set of facts derived by r
 ### Stage 3.1 · Capture (E3)
 
 Step 32. Fix the bundle. Every company gets the same artifact kinds, so facts are comparable across companies. Check the list against `HAND_NOTES.md` and add any page you relied on in Phase 0 that is missing here.
+
 | Kind | What | Used for |
 | --- | --- | --- |
 | homepage | The root page | Positioning, primary CTA, stack signals |
@@ -561,8 +760,22 @@ Step 32. Fix the bundle. Every company gets the same artifact kinds, so facts ar
 Step 33. Discover pages; do not guess paths. Read the homepage navigation, the footer and `sitemap.xml`. Map links to kinds by URL and anchor text: "pricing" or "plans" is `pricing`; "customers", "case studies" or "stories" is `customers`; "vs", "compare" or "alternatives" is `compare`. The hero button's target is `demo_form`. A kind with no matching link is recorded as `not_found`, which is itself a fact.
 
 Step 34. Fetch through Guard. First add the fallback browser: `uv add playwright`, then `uv run playwright install chromium`. Prompt:
-```
 
+```
+Implement engine/capture/. For a company, discover pages (Step 33 rules), then
+fetch each kind once through guard.http. Write one artifacts row per kind with
+its outcome, even when the outcome is not_found, blocked or robots_denied.
+
+- Store raw bytes in the cache. Never store parsed output as the source.
+- If an "ok" page yields under 500 characters of text, retry it once with
+  playwright (headless chromium). At most 2 playwright pages per company.
+  Playwright obeys the same robots and pacing rules as guard.http.
+- dns.py: MX and TXT via dnspython, stored as JSON.
+- `te capture --pilot` runs the pilot and hand sets; `--company <id>` runs one;
+  `--recheck <id>` re-fetches only the artifacts a diagnosis cites, fresh.
+- Print a summary: artifacts by outcome, and the blocked rate.
+Tests against a local fixture site covering: normal site, JS-only page,
+403 page, robots-disallowed path, missing pricing page.
 ```
 
 Step 35. Extract text and structure. `extract_text.py` uses `selectolax` to drop scripts, styles, navigation and footers, then keeps three things: visible text, every button and link with its text and target, and every form with its field names and count. Version the extractor as `ex-1.0` and store a SHA-256 of the text. Changing the extractor bumps the version and re-derives from cache, with no refetch.
@@ -574,6 +787,7 @@ Gate 3.1: all eighteen companies have a bundle; every artifact kind has an outco
 ### Stage 3.2 · Extract (E4)
 
 Step 37. Build the fact extractors. Each is a pure function from the bundle to a fact with its quote. No model calls anywhere in this stage. Build first the ones `HAND_NOTES.md` says you actually used.
+
 | Fact | Values | Rule |
 | --- | --- | --- |
 | pricing_model | numbers, contact_sales, free_or_trial, none | Currency patterns on the pricing page; phrases such as "contact sales", "book a demo", "start free"; none when the page is not_found |
@@ -633,8 +847,23 @@ Step 46. Write the judge prompt. `engine/judge/prompt.md`, versioned as `j-1.0`.
 - The company: name, segment, signal role, offer type, the facts with their quotes, the full job post, and up to 600 words from each other artifact. No person's name or address.
 
 Step 47. Build the judge. Prompt:
-```
 
+```
+Implement engine/judge/judge.py using llm.gateway.call with the judge route.
+
+- Build the prompt from prompt.md plus the company's facts and trimmed artifact
+  texts. Never include any field from the contacts table.
+- The claude_headless provider runs, through subprocess with an argument list:
+    claude -p --output-format json --json-schema <contents of schema.json>
+  with the prompt on stdin. Read the result from structured_output. If that
+  field is missing, record the diagnosis as scoring_failed; never parse free
+  text.
+- schema.json: attempted (bool, required), gap_type (enum G1..G5 or null),
+  confidence (number), need (string), claims (array of {text, artifact_kind,
+  quote}), secondary (array of gap ids), abstain_reason (string or null),
+  cannot_see (string).
+- Key the call on (stage="judge", company_id, prompt_version). Same key, no call.
+- `te judge --pilot` and `te judge --company <id>`.
 ```
 
 Step 48. Build the faithfulness check. `faithfulness.py` normalises whitespace, case and smart quotes, then tests each claim's quote as a substring of that artifact's stored text. A miss fails the claim. A near miss, at 95 or above on `rapidfuzz` partial ratio, is logged in its own category so you can tell a mangled apostrophe from an invented sentence. A diagnosis with fewer than two passing claims from two artifact kinds becomes an abstention.
@@ -642,6 +871,7 @@ Step 48. Build the faithfulness check. `faithfulness.py` normalises whitespace, 
 Step 49. Build the verifier. `verify.py` sends each surviving claim to the verifier route with the quote, 300 characters of surrounding text, and the gap's definition. It answers `supported`, `not_supported` or `unsure`. One `not_supported` flags the diagnosis for your review; two turn it into an abstention. The verifier is never the model family that wrote the claim.
 
 Step 50. Score the judge on the held-out thirteen. `te judge score` runs the judge on all eighteen and reports, for the held-out rows only:
+
 | Measure | Target |
 | --- | --- |
 | Same call as you: the same gap, or both abstain | 10 of 13 or better |
@@ -657,12 +887,15 @@ Gate 4.2: the judge meets both agreement targets on the held-out rows within thr
 Step 51. Set up sending. Two pieces, both new in this phase.
 - Gmail drafts. `uv add google-api-python-client google-auth-oauthlib`. In Google Cloud Console: new project, enable the Gmail API, configure the OAuth consent screen, create an OAuth client of type Desktop app, and save the JSON as `data/gmail_client.json`. On Google Workspace, set the app to Internal so the token does not lapse mid-campaign. Request the `gmail.compose` scope. The engine calls only `users.drafts.create`; no send call exists anywhere in the code.
 - Teardown hosting. Create a Cloudflare Pages project and deploy from the local `site/` folder. Add a `_headers` file so nothing is indexed, and set `TEARDOWN_BASE_URL` in `.env`. Each page lives at `/{company-slug}-{8 random characters}/`.
+
+```
+npx wrangler pages project create te-notes
+npx wrangler pages deploy site --project-name te-notes
 ```
 
 ```
-
-```
-
+/*
+  X-Robots-Tag: noindex, nofollow
 ```
 
 Step 52. Build renderer v1. `render.py` fills a `jinja2` template with the eight sections and writes `site/{slug}/index.html`. Plain, readable HTML with one stylesheet; a page that looks like a document. The recipient's first name and the company's contact details are placeholders until this step fills them locally. Open each deployed URL on a phone.
@@ -674,6 +907,7 @@ Step 54. Create the drafts. `te queue draft --pilot` fills the right email varia
 Step 55. Review and send ten. Run the `red-team` reader over all ten first. Then read each page and email against the live site one last time, apply for any `candidate` role, and send five on one morning and five on the next. Record your minutes with `te queue done <company_id> --minutes <n>`.
 
 Step 56. Re-estimate, and decide. Write three measured numbers into `protocol/BUDGET.md`: minutes per teardown, the share of qualified companies the judge dropped, and how many companies an evening of building yields. Then look at every send so far, hand-made and engine-made, about twenty in all.
+
 | What you see | Decision |
 | --- | --- |
 | Two or more replies from about twenty sends | Continue to Phase 5 as planned |
@@ -700,6 +934,7 @@ Gate 5.1: every qualified company is at `extracted` or `dropped`; the blocked ra
 ### Stage 5.2 · Proof-slice builders
 
 Three builders cover all five gaps. Each carries its own evidence, each has a hard budget, and each row is yours to reject in review.
+
 | Builder | Serves | What it produces | Budget per company |
 | --- | --- | --- | --- |
 | icp_accounts | G1, G3, G4 | Up to ten companies that fit their ICP, each with a fit quote and a dated reason to act now | 3 searches, 45 fetches, 1 model call |
@@ -770,6 +1005,7 @@ Step 76. Sync HubSpot after every session. `te sync` upserts the company, the co
 Step 77. Log replies by hand. `te reply <company_id> --type positive|question|referral|not_now|negative|optout --note "..."`, and `te meeting <company_id> --held` after a call actually happens. At 80 companies, reading your own inbox is faster and more reliable than automating it.
 
 Step 78. Build the metrics command. `te metrics` prints the campaign from the database alone:
+
 | Metric | Definition |
 | --- | --- |
 | Delivered | Sent minus bounced |
@@ -854,22 +1090,90 @@ Claude Code builds all eight engines and also runs as the judge. Set it up once 
 ### The session prompt
 
 Use this for every build step. Only the numbers change.
-```
 
+```
+We are on Phase <n>, Stage <n.n>, Step <nn> of docs/PLAN.md. Read that step and
+this engine's row in the Architecture table. Do only this step.
+
+Before writing code, tell me: the files you will create or change, the tests
+you will add, and anything in the step that is ambiguous.
+
+The rules in CLAUDE.md apply. When done, run `make test` and show me the result
+and `git status --short`. Do not commit.
 ```
 
 ### `CLAUDE.md`: write this in Step 15
 
 Standing instructions loaded into every session. Keep it under 150 lines; a long one gets skimmed.
-```
 
+```
+# Teardown Engine
+
+## What this is
+An outbound engine that works out, from public evidence, what a company's new
+GTM hire will need, and drafts a one-page teardown for a human to review and
+send. The product is judgment shown on a page. Reject any change that turns
+this into a volume tool.
+
+## Non-negotiables
+- Only engine/guard/ touches the network. Every other module calls guard.
+- signal, resolve, capture and extract make zero model calls, except the cached
+  title classifier. If you add one elsewhere, you have broken it.
+- Every fact and every claim carries a verbatim quote from a captured artifact.
+  No quote, no row.
+- `attempted` is an explicit boolean set by the judge. Never infer it.
+- The verifier is never the model family that wrote the claim.
+- Nothing from the contacts table ever enters a prompt, a log or a test.
+  Drafts carry placeholders; the renderer fills them locally.
+- gold rows with split = held_out never appear in a prompt, a skill or a
+  fixture. They exist only to score the judge.
+- No code path sends email. The engine creates Gmail drafts only.
+- Never read, print, log or commit .env, data/ or site/. To inspect a record,
+  ask me to run `te debug export <company_id>` and read debug/.
+- Never commit real company names or contact data, including in tests.
+- Company status only moves forward, or to dropped.
+- No scraping of LinkedIn or Naukri. Respect robots.txt. 1 request per second
+  per host. A blocked site is an outcome, never something to work around.
+
+## Conventions
+- Python 3.12, uv, typer CLI `te`, pydantic models, sqlite3, async httpx.
+- Windows: run things as `uv run te ...` or via make. Call external programs
+  through subprocess with an argument list, never a shell string.
+- Every engine command accepts --company <id>, --limit <n>, --pilot, --dry-run.
+- Idempotent always: a re-run changes nothing unless its inputs changed.
+- Model calls go through llm.gateway.call, keyed on
+  (stage, company_id, prompt_version).
+- Schema changes are numbered migrations; migrate takes a backup first.
+- Changing a prompt, an extractor or a protocol file bumps its version string.
+- Every new module ships with a test in the same commit. Fixtures use invented
+  companies only.
+- One step from docs/PLAN.md per session. Do not start the next step unprompted.
+
+## Commands
+make smoke | signal | resolve | capture | extract | people | judge | build |
+queue | sync | metrics | backup | demo | test | verify
+
+## Where things are
+docs/PLAN.md    the build plan (reference, not instructions)
+protocol/       OFFER, ICP, GAPS, CONDUCT, TEARDOWN_SPEC, HAND_NOTES, BUDGET
+engine/         code, one folder per engine
+debug/          redacted exports you may read; gitignored
+data/, site/    gitignored; never touched from git, never read by you
+
+## Current step
+<update this line every session: phase, stage, step>
 ```
 
 ### Keep secrets out of reach
 
 Add a deny rule in `.claude/settings.json` so no session can open your keys or your data, even by accident:
-```
 
+```
+{
+  "permissions": {
+    "deny": ["Read(./.env)", "Read(./data/**)", "Read(./site/**)"]
+  }
+}
 ```
 
 Check the exact rule syntax against the current Claude Code settings reference when you add it. Engine code still reads these paths at run time; the rule only stops the assistant from reading them into a conversation. When a record misbehaves, run `te debug export <company_id>` yourself and point the session at `debug/`, which holds the same record with every contact field removed.
@@ -877,6 +1181,7 @@ Check the exact rule syntax against the current Claude Code settings reference w
 ### Skills to create
 
 Each is a folder under `.claude/skills/` with a `SKILL.md`. They keep behaviour identical from one session to the next.
+
 | Skill | Holds | Prevents |
 | --- | --- | --- |
 | gap-codebook | The taxonomy from GAPS.md, the abstain conditions, the five teach examples, never the held-out thirteen | The judge prompt drifting between sessions without you noticing |
@@ -886,6 +1191,7 @@ Each is a folder under `.claude/skills/` with a `SKILL.md`. They keep behaviour 
 ### Subagent split
 
 Define these under `.claude/agents/`, or run them as separate sessions. Each has a boundary it does not cross.
+
 | Agent | Owns | Never touches |
 | --- | --- | --- |
 | evidence | E1 to E4: collectors, capture, extractors | judge/, build/, outreach/ |
@@ -898,8 +1204,14 @@ Run `red-team` before the pilot sends in Step 55 and again on the trial batch in
 ### The judge at run time
 
 The pipeline calls Claude Code in non-interactive mode from Python, with an argument list and the prompt on standard input:
-```
 
+```
+result = subprocess.run(
+    ["claude", "-p", "--output-format", "json", "--json-schema", schema_text],
+    input=prompt_text, capture_output=True, text=True, encoding="utf-8",
+)
+payload = json.loads(result.stdout)
+diagnosis = payload.get("structured_output")  # None means no valid result
 ```
 
 The structured result is in the `structured_output` field of the JSON response; check the field exists before using it. Run without `--bare` so the call uses your plan's login. Each call's JSON also reports its estimated cost, which the gateway writes into `llm_calls`.
@@ -913,6 +1225,7 @@ State plainly in the write-up that Claude Code built the engine and drafts the d
 The whole campaign fits inside free allowances with room to spare, because volume is capped at 80 by design. The scarce resource is your time: about 145 hours over ten weeks.
 
 ### Where the 75 to 80 sends come from
+
 | Source | Sends | When |
 | --- | --- | --- |
 | Phase 0, by hand | 6 | Days 1 to 3 |
@@ -923,6 +1236,7 @@ The whole campaign fits inside free allowances with room to spare, because volum
 ### The funnel behind the scaled sends
 
 These ratios are planning assumptions until the pilot replaces them with measured ones.
+
 | Stage | Count | What removes companies |
 | --- | --- | --- |
 | GTM signals collected | 350 or more |  |
@@ -934,6 +1248,7 @@ These ratios are planning assumptions until the pilot replaces them with measure
 If the market yields fewer than 130 qualified companies, that is a finding about the size of this niche, and the campaign ends at a smaller number. Do not loosen the ICP rules to hit a target.
 
 ### Calls and requests across the campaign
+
 | Resource | Used for | Planned volume | Allowance to check on your account |
 | --- | --- | --- | --- |
 | Exa | Board discovery; similar-company search for icp_accounts | About 80 + 150 searches | Your credit balance |
@@ -950,6 +1265,7 @@ If the market yields fewer than 130 qualified companies, that is a finding about
 Spread the Claude Code calls over the build: fifteen to twenty an evening is plenty. Run `--dry-run` before every batch; it prints the projected counts and costs nothing.
 
 ### Your time
+
 | Work | Estimate |
 | --- | --- |
 | Phase 0, six teardowns by hand | 3 days at about 5 hours: 15 hours |
