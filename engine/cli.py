@@ -703,6 +703,99 @@ def resolve_dedupe(company_id: str | None, dry_run: bool, db_file: Path | None) 
     sys.exit(0 if rep.ok else 1)
 
 
+@resolve_cmd.command("segment")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Tag at most this many companies.")
+@click.option("--company", "company_id", default=None,
+              help="Only this company_id (also retries one marked segment_unclear).")
+@click.option("--dry-run", is_flag=True, help="Print the projected requests and exit.")
+@click.option("--seeds", "seeds_file", type=click.Path(dir_okay=False, path_type=Path),
+              default=Path("data") / "seeds.csv", show_default=True,
+              help="Seed list CSV; a seed with no head-office evidence is Indian.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on requests (default 500).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def resolve_segment(
+    limit: int | None,
+    company_id: str | None,
+    dry_run: bool,
+    seeds_file: Path,
+    max_fetches: int | None,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Tag the segment from the head office and apply the location rule (Step 28).
+
+    Reads the homepage and up to three contact or legal pages linked from it
+    for entity names (Pvt Ltd, Inc., Delaware, CIN), addresses and phones.
+    India -> in_saas; abroad with a fresh India-located GTM role ->
+    us_india_team; abroad without one -> dropped out_of_scope; unclear ->
+    review_reason "segment_unclear: ...". No model calls.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import Budget, BudgetExceeded, format_projection, project
+    from engine.guard.cache import Cache
+    from engine.guard.http import Guard, GuardConfigError
+    from engine.resolve import segment
+    from engine.resolve.domain import registrable_domain
+    from engine.signal.seeds import SeedsError, load_seeds
+
+    try:
+        seeds = load_seeds(seeds_file)
+    except FileNotFoundError:
+        click.echo(f"no seed file at {seeds_file}; no company gets the seed default")
+        seeds = []
+    except SeedsError as e:
+        _fail(str(e))
+        return
+    seed_sites = {d: s.site for s in seeds if (d := registrable_domain(s.site))}
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    budget = Budget() if max_fetches is None else Budget(max_fetches=max_fetches)
+    cache = Cache(cache_dir)
+    try:
+        targets = segment.select(conn, seed_sites, company_id=company_id, limit=limit)
+        if dry_run:
+            click.echo(f"companies to tag {len(targets)} "
+                       f"(seed {sum(t.seed for t in targets)})")
+            click.echo(format_projection(project([t.homepage for t in targets], cache), budget))
+            click.echo(f"each homepage adds up to {segment.MAX_EXTRA_PAGES} contact or legal "
+                       "pages linked from it")
+            return
+
+        async def go() -> segment.Report:
+            async with Guard(cache=cache, budget=budget) as g:
+                return await segment.run(conn, targets, g)
+
+        try:
+            rep = asyncio.run(go())
+        except (GuardConfigError, BudgetExceeded) as e:
+            _fail(str(e))
+            return
+    finally:
+        conn.close()
+
+    for out in rep.outcomes:
+        d = out.decision
+        detail = out.error or (f"{d.hq} ({d.basis})" if d and d.hq else "") \
+            + (f"; {out.code}: {out.detail}" if out.code else "")
+        click.echo(f"{out.target.company_id[:36]:<36}  {out.state:<14} {detail.lstrip('; ')}")
+    click.echo(f"companies {rep.companies}: in_saas {rep.segments[segment.IN_SAAS]}, "
+               f"us_india_team {rep.segments[segment.US_INDIA_TEAM]}, dropped out_of_scope "
+               f"{rep.dropped}, needs_review {sum(rep.needs_review.values())}, errors "
+               f"{len(rep.errors)}; changed {rep.changed}")
+    for code, n in sorted(rep.needs_review.items()):
+        click.echo(f"  needs_review {code:<24} {n}")
+    if rep.pages:
+        click.echo("pages: " + ", ".join(f"{k} {v}" for k, v in sorted(rep.pages.items())))
+    sys.exit(1 if rep.errors else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

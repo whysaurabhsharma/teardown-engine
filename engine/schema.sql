@@ -1,10 +1,11 @@
--- engine/schema.sql: the current full schema (version 6), for reading.
+-- engine/schema.sql: the current full schema (version 7), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
 
 -- description_text was added by 0003_signal_description, fresh and india_located
--- by 0004_signal_filter, companies.review_reason by 0005_company_review; they
+-- by 0004_signal_filter, companies.review_reason by 0005_company_review and
+-- companies.hq, hq_basis and hq_evidence by 0007_company_hq; they
 -- are laid out the way SQLite stores an ALTER TABLE ADD COLUMN so this file
 -- matches the migrated database.
 CREATE TABLE signals (
@@ -39,7 +40,8 @@ CREATE TABLE companies (
     pilot          INTEGER NOT NULL DEFAULT 0 CHECK (pilot IN (0, 1)),
     hand           INTEGER NOT NULL DEFAULT 0 CHECK (hand IN (0, 1)),
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), review_reason TEXT,
+    updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), review_reason TEXT, hq TEXT CHECK (hq IS NULL OR hq IN ('india', 'abroad')), hq_basis TEXT, hq_evidence TEXT NOT NULL DEFAULT '[]'
+    CHECK (json_valid(hq_evidence) AND json_type(hq_evidence) = 'array'),
     CHECK ((status = 'dropped') = (drop_reason IS NOT NULL AND drop_stage IS NOT NULL))
 );
 CREATE INDEX companies_status ON companies(status);
@@ -64,6 +66,48 @@ WHEN NEW.status <> OLD.status AND (
 )
 BEGIN
     SELECT RAISE(ABORT, 'company status may only move forward or to dropped');
+END;
+
+-- 0007_company_hq: where a company's head office is, and the quotes that say so.
+--   Written by `te resolve segment` (engine/resolve/segment.py, Step 28), which
+--   sets companies.segment from it (protocol/ICP.md, "Segment and location rule").
+--   hq           'india' or 'abroad'; NULL when not decided (no evidence, or
+--                conflicting evidence: review_reason then reads
+--                "segment_unclear: ...").
+--   hq_basis     how hq was decided, e.g. 'entity', 'address',
+--                'abroad_parent_india_subsidiary', 'seed_default'; NULL with hq.
+--   hq_evidence  JSON array of the markers found, each an object with a
+--                non-empty verbatim "quote" and the "url" of the page it was
+--                read from (plus marker, side, kind, char_start). No quote, no
+--                marker: the triggers below reject one without. Kept when hq
+--                is NULL so the review sees what was found.
+--   Why not facts: facts rows are E4 output tied to captured artifacts
+--   (artifact_kind, extractor_version); E2 runs before capture and has no
+--   artifacts to point at.
+CREATE TRIGGER companies_hq_evidence_insert
+BEFORE INSERT ON companies
+WHEN EXISTS (
+    SELECT 1 FROM json_each(NEW.hq_evidence)
+    WHERE type IS NOT 'object'
+       OR json_type(value, '$.quote') IS NOT 'text'
+       OR length(trim(json_extract(value, '$.quote'))) = 0
+       OR json_type(value, '$.url') IS NOT 'text'
+       OR length(trim(json_extract(value, '$.url'))) = 0)
+BEGIN
+    SELECT RAISE(ABORT, 'hq_evidence: every marker needs a quote and a url');
+END;
+
+CREATE TRIGGER companies_hq_evidence_update
+BEFORE UPDATE OF hq_evidence ON companies
+WHEN EXISTS (
+    SELECT 1 FROM json_each(NEW.hq_evidence)
+    WHERE type IS NOT 'object'
+       OR json_type(value, '$.quote') IS NOT 'text'
+       OR length(trim(json_extract(value, '$.quote'))) = 0
+       OR json_type(value, '$.url') IS NOT 'text'
+       OR length(trim(json_extract(value, '$.url'))) = 0)
+BEGIN
+    SELECT RAISE(ABORT, 'hq_evidence: every marker needs a quote and a url');
 END;
 
 -- 0006_company_flags: pairs of companies a person should look at together.

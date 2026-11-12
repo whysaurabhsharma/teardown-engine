@@ -57,8 +57,25 @@ class Signal(Row):
     india_located: bool | None = None  # set by `te signal filter` (0004)
 
 
+class HqMarker(BaseModel):
+    """One piece of head-office evidence (Step 28): what was matched, on which
+    page, with the verbatim text around it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    marker: NonBlank  # e.g. "entity:pvt_ltd", "cin", "address:in", "phone:+1"
+    side: Literal["india", "abroad"]
+    kind: Literal["entity", "incorporation", "address", "phone"]
+    quote: Quote
+    url: NonBlank
+    char_start: Annotated[int, Field(ge=0)]
+    entity: str | None = None  # the entity name as written, for entity markers
+    role: Literal["parent", "subsidiary"] | None = None  # when the page says which
+
+
 class Company(Row):
     TABLE: ClassVar[str] = "companies"
+    JSON_FIELDS: ClassVar[frozenset[str]] = frozenset({"hq_evidence"})
 
     company_id: NonBlank
     domain: str | None = None
@@ -73,6 +90,9 @@ class Company(Row):
     created_at: str | None = None
     updated_at: str | None = None
     review_reason: str | None = None  # "<code>: <detail>" when a person must look (0005)
+    hq: Literal["india", "abroad"] | None = None  # head office, set by Step 28 (0007)
+    hq_basis: str | None = None  # how hq was decided (0007)
+    hq_evidence: list[HqMarker] = Field(default_factory=list)  # quoted markers (0007)
 
     @model_validator(mode="after")
     def _drop_fields(self) -> Company:

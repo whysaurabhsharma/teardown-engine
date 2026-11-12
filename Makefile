@@ -22,3 +22,5 @@ verify:
 
 resolve:
 	uv run te resolve --seeds $(SEEDS)
+	uv run te resolve dedupe
+	uv run te resolve segment --seeds $(SEEDS)
