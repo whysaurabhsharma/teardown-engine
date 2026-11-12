@@ -276,8 +276,8 @@ def test_database_rejects_unknown_gap_type(conn: sqlite3.Connection) -> None:
     add_company(conn)
     with pytest.raises(sqlite3.IntegrityError, match="CHECK"), conn:
         conn.execute(
-            "INSERT INTO gold (company_id, gap_type, abstain, evidence, split)"
-            " VALUES (?, 'G9', 0, '[]', 'teach')",
+            "INSERT INTO gold (company_id, gap_type, abstain, evidence, split, gaps_version)"
+            " VALUES (?, 'G9', 0, '[]', 'teach', 'v1')",
             ("zentrico-io",),
         )
 
