@@ -20,6 +20,7 @@ dependencies = [
     "google-api-python-client",
     "google-auth-oauthlib",
     "pytest",
+    "jsonschema>=4.26.0",
 ]
 
 [project.scripts]

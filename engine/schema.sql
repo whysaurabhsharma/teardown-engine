@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 1), for reading.
+-- engine/schema.sql: the current full schema (version 2), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -205,6 +205,8 @@ CREATE TABLE touches (
     UNIQUE (company_id, touch_no)
 );
 
+-- cost_usd was added by 0002_llm_cost; it is laid out the way SQLite stores
+-- an ALTER TABLE ADD COLUMN so this file matches the migrated database.
 CREATE TABLE llm_calls (
     call_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     stage          TEXT NOT NULL,
@@ -217,7 +219,7 @@ CREATE TABLE llm_calls (
     cache_hit      INTEGER NOT NULL DEFAULT 0 CHECK (cache_hit IN (0, 1)),
     output         TEXT CHECK (output IS NULL OR json_valid(output)),
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-);
+, cost_usd REAL CHECK (cost_usd IS NULL OR cost_usd >= 0));
 CREATE INDEX llm_calls_key ON llm_calls(stage, company_id, prompt_version);
 
 CREATE TABLE suppressions (

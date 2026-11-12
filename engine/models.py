@@ -248,6 +248,7 @@ class LlmCall(Row):
     cache_hit: bool = False
     output: Any = None
     created_at: str | None = None
+    cost_usd: Annotated[float, Field(ge=0)] | None = None
 
 
 class Suppression(Row):
