@@ -1,0 +1,36 @@
+[project]
+name = "teardown-engine"
+version = "0.1.0"
+description = "Teardown engine"
+readme = "docs/PLAN.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Saurabh Sharma" }]
+dependencies = [
+    "httpx",
+    "playwright",
+    "beautifulsoup4",
+    "lxml",
+    "pydantic",
+    "pyyaml",
+    "tenacity",
+    "python-dotenv",
+    "click",
+    "jinja2",
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "pytest",
+]
+
+[project.scripts]
+te = "engine.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
