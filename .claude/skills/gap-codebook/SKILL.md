@@ -48,11 +48,17 @@ may appear once, as a question, in a follow-up.
 - Below 0.6: abstain.
 
 ## Diagnosis shape
-As in GAPS.md (Step 47 schema): `attempted` (bool, required), `gap_type`
-(G1..G5 or null), `confidence`, `need`, `claims` (array of {text,
-artifact_kind, quote}), `secondary` (array of gap ids), `abstain_reason`
-(string or null), `cannot_see`. Open question for Step 47: carry `url` on each
-claim, or take it from the artifact row.
+As in GAPS.md v1.1: `attempted` (bool, required), `gap_type` (G1..G5 or
+null), `confidence`, `need`, `claims` (array of {text, artifact_kind, found,
+url, quote}), `secondary` (array of gap ids), `abstain_reason` (string or
+null), `cannot_see`.
+
+Every claim states its source:
+- `found: true`: verbatim quote + the URL of the artifact it came from.
+- `found: false`: an absence. `quote` is null, `url` is where it was looked
+  for. Valid only when that artifact's capture outcome is `not_found`;
+  `blocked`, `dead` and `robots_denied` mean unseen, never absent.
+- At least one found claim per diagnosis. Absence alone never names a gap.
 
 ## Teach examples
 None yet. Step 45 adds the five `teach` gold diagnoses here: both segments, at

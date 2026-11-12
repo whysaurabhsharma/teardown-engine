@@ -1,7 +1,8 @@
 # TEARDOWN_SPEC.md
 
-Version 1 · 2026-11-12
+Version 1.1 · 2026-11-12
 Not yet corrected from HAND_NOTES.md.
+1.1: every evidence line shows its source; absences are shown as "Not found".
 
 The teardown page, the rules the renderer and quality gates enforce, the two
 email variants and the follow-ups. `engine/build/` (drafter, renderer,
@@ -37,8 +38,16 @@ Plain, readable HTML with one stylesheet; a page that looks like a document.
 
 ## Rules the renderer enforces
 
-- Every sentence in section 3 traces to a claim with a passing quote. No quote,
-  no sentence.
+- Every sentence in section 3 traces to a passing claim (GAPS.md, evidence
+  rules). No passing claim, no sentence.
+- Every piece of evidence on the page shows where it came from:
+  - Found: the quoted line, then a link to the page it was quoted from.
+  - Not found: "Not found: no {page kind} linked from {where it was looked
+    for}", with a link to that page and the capture date. Never quoted, never
+    phrased as a fact about the company beyond what was looked for.
+- Section 2 lists every page looked at, including those not found, each
+  marked "found" or "not found". Pages that were blocked or unreachable are
+  left out of the evidence entirely.
 - The words describe what the pages show. They never assert what happens inside
   the company. "Your pricing page routes to a demo form" is fine. "Your reps are
   wasting time" is a guess.
@@ -51,7 +60,8 @@ Plain, readable HTML with one stylesheet; a page that looks like a document.
 - The company name appears in the header and at least twice in the body, so a
   template cannot slip through unnoticed.
 - Every row in the proof slice carries a source URL and a quote. A row without
-  both is dropped before rendering.
+  both is dropped before rendering. Where a slice field has no source, the cell
+  reads "not found", never a guess.
 
 ## Banned phrases
 
@@ -70,6 +80,8 @@ Any of these fails the build:
 A teardown fails before human review when any of these hold:
 
 - a sentence in section 3 has no passing claim behind it
+- a piece of evidence on the page has no source link, or a "Not found" line
+  rests on a page that was blocked or unreachable
 - fewer than two artifact kinds are cited
 - a word limit is exceeded or a banned phrase appears
 - the company name is missing from the body

@@ -1,7 +1,8 @@
 # GAPS.md
 
-Version 1 · 2026-11-12
+Version 1.1 · 2026-11-12
 Not yet corrected from HAND_NOTES.md.
+1.1: claims carry `found` and `url`; absence is a `not_found` claim, not a quote.
 
 The five gaps the judge may name, their evidence and abstain conditions, and
 the rules that decide when the judge names one or abstains. The judge prompt
@@ -54,10 +55,21 @@ follow-up.
 
 ## Evidence rules
 
-- Every claim quotes the supplied artifact text verbatim, and carries its source
-  URL. No quote, no claim. A claim without a quote cannot be written; the
-  database rejects it.
-- A diagnosis needs claims from at least two artifact kinds.
+Every claim states its source. There are two kinds of claim:
+
+- Found (`found: true`). The claim quotes the artifact text verbatim and
+  carries that artifact's URL. No quote, no claim; the database rejects a
+  found claim without both.
+- Not found (`found: false`). The claim says a page or element is absent, so
+  there is nothing to quote: `quote` is null and the claim names the
+  `artifact_kind` that was looked for. `url` is the page where it was looked
+  for (the homepage, its sitemap, or the page that should have held it). It is
+  valid only when that artifact's capture outcome is `not_found`. An outcome of
+  `blocked`, `dead` or `robots_denied` means it could not be seen, never that
+  it is absent, and no not-found claim may rest on it.
+
+- A diagnosis needs passing claims from at least two artifact kinds, and at
+  least one of them must be a found claim. Absence alone never names a gap.
 - Describe what the pages show, never what happens inside the company.
 - The judge prompt holds public company pages and facts only. No person's name,
   title or address, and no field from the `contacts` table.
@@ -91,7 +103,7 @@ from a null `gap_type`. A diagnosis without `attempted` fails validation.
 | gap_type | enum G1..G5, or null |
 | confidence | number |
 | need | string: what the hire will need |
-| claims | array of {text, artifact_kind, quote} |
+| claims | array of {text, artifact_kind, found (bool), url, quote (string, or null when found is false)} |
 | secondary | array of gap ids |
 | abstain_reason | string or null |
 | cannot_see | string: the specific thing the public pages cannot show, used in teardown section 7 |
@@ -105,8 +117,10 @@ diagnosis is recorded as `scoring_failed`; free text is never parsed.
    quotes, then test each claim's quote as a substring of that artifact's
    stored text. A miss fails the claim. A near miss, at 95 or above on
    `rapidfuzz` partial ratio, is logged in its own category, but still fails.
-   A diagnosis with fewer than two passing claims from two artifact kinds
-   becomes an abstention.
+   A found claim's `url` must equal the URL of the artifact it quotes. A
+   not-found claim passes only if that artifact kind's capture outcome is
+   `not_found`. A diagnosis with fewer than two passing claims from two
+   artifact kinds, or with no passing found claim, becomes an abstention.
 2. Verifier (`verify.py`). Each surviving claim goes to the verifier route with
    the quote, 300 characters of surrounding text and the gap's definition. It
    answers `supported`, `not_supported` or `unsure`. Two `not_supported` turn the
