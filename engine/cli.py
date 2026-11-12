@@ -796,6 +796,63 @@ def resolve_segment(
     sys.exit(1 if rep.errors else 0)
 
 
+@main.command("qualify")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Qualify at most this many companies (first by company_id).")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--dry-run", is_flag=True, help="Print the verdicts and write nothing.")
+@_db_option
+def qualify_cmd(limit: int | None, company_id: str | None, dry_run: bool,
+                db_file: Path | None) -> None:
+    """Apply the ICP rules and pick each company's signal (Step 29).
+
+    Resolved companies with a segment, in the fixed order of protocol/ICP.md:
+    out_of_scope, staffing_or_agency, consumer, then an open GTM role. The
+    first rule that fails drops (drop_reason, drop_stage) or, when only a
+    person can tell, holds with review_reason "qualify_hold: ...". Passing
+    companies get best_signal_id and move to qualified. Size and conflicts
+    are left for `te resolve review`. No network, no model calls.
+    """
+    from engine import db as dbmod
+    from engine.resolve import qualify
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        rep = qualify.run(conn, company_id=company_id, limit=limit, dry_run=dry_run)
+    finally:
+        conn.close()
+
+    for v in rep.verdicts:
+        if v.action == "qualify":
+            what = f"best {v.best_signal_id} (of {v.gtm_roles} fresh GTM)"
+        elif v.action == "drop":
+            what = f"{v.reason} ({v.stage}): {v.detail}"
+        else:
+            what = f"{v.reason}: {v.detail}"
+        state = {"qualify": "qualified", "drop": "dropped", "hold": "held"}[v.action]
+        click.echo(f"{v.target.company_id[:36]:<36}  {state:<9} {what}")
+    for err in rep.errors:
+        click.echo(f"error  {err}")
+    tail = "dry run, nothing written" if dry_run else f"changed {rep.changed}"
+    click.echo(f"companies {rep.companies}: qualified {rep.qualified}, dropped "
+               f"{sum(rep.dropped.values())}, held for review {sum(rep.held.values())}, "
+               f"errors {len(rep.errors)}; {tail}")
+    for reason, n in sorted(rep.dropped.items()):
+        click.echo(f"  dropped {reason:<24} {n}")
+    for reason, n in sorted(rep.held.items()):
+        click.echo(f"  held    {reason:<24} {n}")
+    for code, n in sorted(rep.skipped.items()):
+        click.echo(f"  skipped, already in review ({code}) {n}")
+    if rep.unsegmented:
+        click.echo(f"  resolved without a segment {rep.unsegmented}: run `te resolve segment`")
+    click.echo("not applied here: too_large and conflict (`te resolve review`, Step 30)")
+    sys.exit(1 if rep.errors else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

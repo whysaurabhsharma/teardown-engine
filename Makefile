@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve backup verify
+.PHONY: test smoke signal careers resolve qualify backup verify
 
 test:
 	uv run pytest
@@ -24,3 +24,6 @@ resolve:
 	uv run te resolve --seeds $(SEEDS)
 	uv run te resolve dedupe
 	uv run te resolve segment --seeds $(SEEDS)
+
+qualify:
+	uv run te qualify

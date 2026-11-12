@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 2: Stage 2.1 code done (21, 23-25); Steps 26-28 done (resolve, dedupe, segment; migrations 0005-0007). Step 22 waits for a search API key; Gate 2.1 needs live runs. Next: Step 29.
+Phase 2 code done through Step 29 (collect, classify, filter, resolve, dedupe, segment, qualify). Step 22 waits for a search API key; Gates 2.1-2.3 need live runs and human review. Next: Step 30 tooling.
