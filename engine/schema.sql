@@ -1,11 +1,12 @@
--- engine/schema.sql: the current full schema (version 7), for reading.
+-- engine/schema.sql: the current full schema (version 8), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
 
 -- description_text was added by 0003_signal_description, fresh and india_located
 -- by 0004_signal_filter, companies.review_reason by 0005_company_review and
--- companies.hq, hq_basis and hq_evidence by 0007_company_hq; they
+-- companies.hq, hq_basis and hq_evidence by 0007_company_hq and
+-- companies.headcount, reviewed_at and review_note by 0008_company_review_fields; they
 -- are laid out the way SQLite stores an ALTER TABLE ADD COLUMN so this file
 -- matches the migrated database.
 CREATE TABLE signals (
@@ -41,10 +42,16 @@ CREATE TABLE companies (
     hand           INTEGER NOT NULL DEFAULT 0 CHECK (hand IN (0, 1)),
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')), review_reason TEXT, hq TEXT CHECK (hq IS NULL OR hq IN ('india', 'abroad')), hq_basis TEXT, hq_evidence TEXT NOT NULL DEFAULT '[]'
-    CHECK (json_valid(hq_evidence) AND json_type(hq_evidence) = 'array'),
+    CHECK (json_valid(hq_evidence) AND json_type(hq_evidence) = 'array'), headcount INTEGER CHECK (headcount IS NULL OR headcount > 0), reviewed_at TEXT, review_note TEXT,
     CHECK ((status = 'dropped') = (drop_reason IS NOT NULL AND drop_stage IS NOT NULL))
 );
 CREATE INDEX companies_status ON companies(status);
+
+-- 0008_company_review_fields: what the human review (Step 30) records.
+--   headcount    approximate number of people, typed in `te resolve review`;
+--                ICP.md's too_large (~1,000) is a human drop, never automatic.
+--   reviewed_at  when a person accepted (at qualified) or dropped the company.
+--   review_note  free text typed with the decision. Never a person's name.
 
 -- Status only moves forward, or to dropped; dropped is terminal.
 CREATE TRIGGER companies_status_forward

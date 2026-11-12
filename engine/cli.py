@@ -853,6 +853,294 @@ def qualify_cmd(limit: int | None, company_id: str | None, dry_run: bool,
     sys.exit(1 if rep.errors else 0)
 
 
+_REVIEW_KEYS = "a accept | d drop | s segment | h headcount | n next | q quit"
+
+
+@resolve_cmd.command("review")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Review at most this many companies.")
+@click.option("--only-review", is_flag=True,
+              help="Only companies with a review_reason (default also shows qualified "
+                   "companies no one has reviewed).")
+@click.option("--pilot", is_flag=True, help="Only pilot companies.")
+@click.option("--dry-run", is_flag=True, help="Print each company and ask nothing.")
+@click.option("--seeds", "seeds_file", type=click.Path(dir_okay=False, path_type=Path),
+              default=Path("data") / "seeds.csv", show_default=True,
+              help="Seed list CSV; a seed's own site is looked up for its homepage title.")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Guard's cache, read for the homepage title (default: $TE_CACHE_DIR or "
+                   "data/cache). Nothing is fetched.")
+@_db_option
+def resolve_review(company_id: str | None, limit: int | None, only_review: bool, pilot: bool,
+                   dry_run: bool, seeds_file: Path, cache_dir: Path | None,
+                   db_file: Path | None) -> None:
+    """Review companies one at a time and decide by key (Step 30).
+
+    Shows name, domain, segment, head office with its quotes, review_reason,
+    possible duplicates, signals and the cached homepage title. a accepts
+    (re-runs the qualify rules for it), d drops with an ICP reason, s sets
+    the segment, h records the approximate headcount, n skips, q quits.
+    No network, no model calls.
+    """
+    from engine import db as dbmod
+    from engine.guard.cache import Cache
+    from engine.resolve import review
+    from engine.signal.seeds import SeedsError, load_seeds
+
+    try:
+        seed_sites = {s.domain: s.site for s in load_seeds(seeds_file)}
+    except (FileNotFoundError, SeedsError):
+        seed_sites = {}
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    cache = Cache(cache_dir)
+    tally = {"accepted": 0, "held": 0, "dropped": 0, "skipped": 0}
+    try:
+        try:
+            ids = review.select(conn, company_id=company_id, limit=limit,
+                                only_review=only_review, pilot=pilot)
+        except review.ReviewError as e:
+            _fail(str(e))
+            return
+        if not ids:
+            click.echo("nothing to review")
+            return
+        for i, cid in enumerate(ids, 1):
+            while True:
+                domain = conn.execute("SELECT domain FROM companies WHERE company_id = ?",
+                                      (cid,)).fetchone()["domain"]
+                click.echo(f"\n[{i}/{len(ids)}]")
+                click.echo(review.render_company(conn, cid, cache=cache,
+                                                 seed_site=seed_sites.get(domain or "")))
+                if dry_run:
+                    break
+                key = click.prompt(_REVIEW_KEYS, type=click.Choice(list("adshnq")),
+                                   show_choices=False)
+                if key == "q":
+                    click.echo(", ".join(f"{k} {v}" for k, v in tally.items()))
+                    return
+                if key == "n":
+                    tally["skipped"] += 1
+                    break
+                if key == "a":
+                    hc = conn.execute("SELECT headcount FROM companies WHERE company_id = ?",
+                                      (cid,)).fetchone()["headcount"]
+                    if hc is not None and hc > review.TOO_LARGE and not click.confirm(
+                            f"headcount {hc} > {review.TOO_LARGE} (too_large); accept anyway?",
+                            default=False):
+                        continue
+                    decision = review.Decision("accept")
+                elif key == "d":
+                    reason = click.prompt("drop reason", type=click.Choice(review.DROP_REASONS))
+                    note = click.prompt("note (optional; never a person's name)", default="",
+                                        show_default=False)
+                    decision = review.Decision("drop", reason=reason, note=note)
+                elif key == "s":
+                    seg = click.prompt("segment", type=click.Choice(review.SEGMENTS))
+                    decision = review.Decision("segment", segment=seg)
+                else:
+                    n = click.prompt("approximate headcount", type=click.IntRange(min=1))
+                    decision = review.Decision("headcount", headcount=n)
+                res = review.apply_decision(conn, cid, decision)
+                click.echo(("ok: " if res.ok else "refused: ") + res.message)
+                for w in res.warnings:
+                    click.echo(f"warning: {w}")
+                if res.ok and key in "ad":
+                    if key == "d":
+                        tally["dropped"] += 1
+                    elif res.status == "qualified":
+                        tally["accepted"] += 1
+                    else:
+                        tally["held"] += 1
+                    break
+    finally:
+        conn.close()
+    if not dry_run:
+        click.echo(", ".join(f"{k} {v}" for k, v in tally.items()))
+
+
+@main.group("company")
+def company_group() -> None:
+    """Companies entered by hand."""
+
+
+@company_group.command("add")
+@click.option("--hand", is_flag=True,
+              help="Required: a Phase 0 company written to by hand (hand = 1, status sent).")
+@click.option("--company", required=True, help="Company name.")
+@click.option("--domain", required=True, help="Its domain, e.g. example.com.")
+@click.option("--segment", required=True, type=click.Choice(["in_saas", "us_india_team"]))
+@click.option("--role", required=True, help="The job title the teardown was written against.")
+@click.option("--role-url", required=True, help="Where the role was posted (http(s) URL).")
+@click.option("--offer", required=True, type=click.Choice(["candidate", "adjacent"]))
+@click.option("--family", default=None,
+              type=click.Choice(["ae", "demand_gen", "growth", "gtm_engineer", "revops",
+                                 "sales_lead", "sdr"]),
+              help="Role family, when the title rules cannot place the title.")
+@click.option("--sent-on", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help="Date touch 1 was sent, YYYY-MM-DD.")
+@click.option("--channel", type=click.Choice(["email", "linkedin"]), default="email",
+              show_default=True)
+@click.option("--reply", type=click.Choice(["positive", "question", "referral", "not_now",
+                                                "negative", "optout"]), default=None,
+              help="Reply to touch 1, if any (outcome replied_<type>); optout also "
+                   "suppresses the domain.")
+@click.option("--reply-on", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help="Date of the reply, YYYY-MM-DD.")
+@click.option("--note", default=None, help="Free text about the company; never a person's name.")
+@click.option("--adopt", is_flag=True,
+              help="The domain is already in the pipeline: mark that row hand-made and move "
+                   "it forward to sent.")
+@click.option("--dry-run", is_flag=True, help="Validate and print; write nothing.")
+@_db_option
+def company_add(hand: bool, company: str, domain: str, segment: str, role: str, role_url: str,
+                offer: str, family: str | None, sent_on: datetime | None, channel: str,
+                reply: str | None, reply_on: datetime | None, note: str | None, adopt: bool,
+                dry_run: bool, db_file: Path | None) -> None:
+    """Enter a Phase 0 company with its role and touch 1 (Step 30).
+
+    Creates the company (hand = 1, status sent), a manual signal for the
+    role as its best signal, and touch 1 with any reply. No recipient details
+    are taken. Idempotent by domain: a re-run adds only what is missing.
+    """
+    from engine import db as dbmod
+    from engine.resolve import hand as handmod
+
+    if not hand:
+        _fail("only Phase 0 companies are added this way: pass --hand")
+        return
+    entry = handmod.HandEntry(
+        company=company, domain=domain, segment=segment, role=role, role_url=role_url,
+        offer=offer, family=family, sent_on=sent_on.date() if sent_on else None,
+        reply=reply, reply_on=reply_on.date() if reply_on else None, channel=channel,
+        note=note, adopt=adopt)
+    today = datetime.now(UTC).date()
+    if dry_run:
+        try:
+            dom, cid, fam, sig = handmod.prepare(entry, today)
+        except handmod.HandError as e:
+            _fail(str(e))
+            return
+        click.echo(f"would add {cid} ({dom}) hand = 1 at sent; signal {sig.signal_id} "
+                   f"{fam}/{offer}; touch 1 via {channel}"
+                   + (f", reply {reply}" if reply else ""))
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        res = handmod.add(conn, entry, today=today)
+    except handmod.HandError as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    head = "created" if res.created else ("updated" if res.changes else "unchanged")
+    click.echo(f"{head} {res.company_id} ({res.domain}); signal {res.signal_id} "
+               f"{res.role_family}/{offer}")
+    for c in res.changes:
+        click.echo(f"  + {c}")
+    for w in res.warnings:
+        click.echo(f"warning: {w}")
+
+
+@main.group("pilot")
+def pilot_group() -> None:
+    """Pick the pilot twelve (Step 31)."""
+
+
+def _print_pilot(rows: list) -> None:
+    for r in rows:
+        click.echo(f"{r.company_id[:36]:<36} {r.segment or '-':<14} {r.offer_type or '-':<10} "
+                   f"{r.status:<10} {r.title or '(no best signal)'}")
+
+
+@pilot_group.command("pick")
+@click.argument("company_ids", nargs=-1, required=True)
+@click.option("--dry-run", is_flag=True, help="Check the pick; write nothing.")
+@_db_option
+def pilot_pick(company_ids: tuple[str, ...], dry_run: bool, db_file: Path | None) -> None:
+    """Mark COMPANY_IDS pilot = 1. Refuses hand-made, dropped or unqualified
+    companies and more than 12 in all or 6 in a segment; warns on the rest."""
+    from engine import db as dbmod
+    from engine.resolve import pilot
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        new, warnings = pilot.pick(conn, list(company_ids), dry_run=dry_run)
+    except pilot.PilotError as e:
+        _fail(f"refused, nothing written:\n{e}")
+        return
+    finally:
+        conn.close()
+    verb = "would pick" if dry_run else "picked"
+    click.echo(f"{verb} {len(new)}" + (": " + ", ".join(new) if new else ""))
+    for w in warnings:
+        click.echo(f"warning: {w}")
+
+
+@pilot_group.command("list")
+@_db_option
+def pilot_list(db_file: Path | None) -> None:
+    """Print the pilot companies and check Step 31; exit 1 if a check fails."""
+    from engine import db as dbmod
+    from engine.resolve import pilot
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        rows = pilot.pilots(conn)
+    finally:
+        conn.close()
+    _print_pilot(rows)
+    chk = pilot.check(rows)
+    c = chk.counts
+    click.echo(f"total {c['total']}/{pilot.TOTAL}; in_saas {c['in_saas']}, us_india_team "
+               f"{c['us_india_team']} (want {pilot.PER_SEGMENT} each); candidate "
+               f"{c['candidate']} (want >= {pilot.MIN_CANDIDATE})")
+    if chk.ok:
+        click.echo("checks ok")
+    for p in chk.problems:
+        click.echo(f"check: {p}")
+    sys.exit(0 if chk.ok else 1)
+
+
+@pilot_group.command("unpick")
+@click.argument("company_id")
+@_db_option
+def pilot_unpick(company_id: str, db_file: Path | None) -> None:
+    """Set pilot = 0 for COMPANY_ID."""
+    from engine import db as dbmod
+    from engine.resolve import pilot
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        changed = pilot.unpick(conn, company_id)
+    except pilot.PilotError as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    click.echo(f"unpicked {company_id}" if changed else f"{company_id} was not in the pilot")
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

@@ -93,6 +93,9 @@ class Company(Row):
     hq: Literal["india", "abroad"] | None = None  # head office, set by Step 28 (0007)
     hq_basis: str | None = None  # how hq was decided (0007)
     hq_evidence: list[HqMarker] = Field(default_factory=list)  # quoted markers (0007)
+    headcount: Annotated[int, Field(gt=0)] | None = None  # typed in the review (0008)
+    reviewed_at: str | None = None  # when a person accepted or dropped it (0008)
+    review_note: str | None = None  # free text typed with the decision (0008)
 
     @model_validator(mode="after")
     def _drop_fields(self) -> Company:

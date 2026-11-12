@@ -1,7 +1,8 @@
 # ICP.md
 
-Version 1 · 2026-11-12
+Version 1.1 · 2026-11-12
 Not yet corrected from HAND_NOTES.md.
+1.1: adds the `duplicate` drop reason, applied at human review.
 
 Who qualifies, who is excluded, and how each company is given a segment.
 `engine/resolve/segment.py` and `engine/resolve/qualify.py` read this file.
@@ -72,6 +73,7 @@ or to `dropped`.
 | staffing_or_agency | A recruiter, staffing firm or outsourcing shop posting on a client's behalf | E2 qualify |
 | consumer | Sells to consumers only | E2 qualify |
 | too_large | More than roughly 1,000 people; the recipient will never see it | Human review (Step 30) |
+| duplicate | The same company as another row under a different domain (flagged by `te resolve dedupe`); the other row is kept | Human review (Step 30) |
 | conflict | A company worked with, a direct competitor of one, or anywhere current company interests make contact awkward. The list lives in `OFFER.md`, "Companies I will not contact" | Human review (Step 30) |
 | no_site_evidence | Fewer than three usable artifacts after capture | E3 capture |
 | no_recipient | No named owner of the problem, or no way to reach them | People step (Step 43) |
