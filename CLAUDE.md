@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 2, Stage 2.1, Step 21 done (ATS collectors: greenhouse, lever, ashby, workable; migration 0003). Next: Step 23 (22 waits for a search API key).
+Phase 2, Stage 2.1, Step 23 done (seeds loader, careers collector, te signal add); Step 21 done; Step 22 waits for a search API key. Next: Step 24.

@@ -3,6 +3,7 @@
 import asyncio
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -295,6 +296,143 @@ def signal_collect(
     click.echo(f"boards {len(todo)}, signals {found}, new {new}, errors {errors}, "
                f"requests sent {made}")
     sys.exit(1 if errors else 0)
+
+
+@signal_group.command("careers")
+@click.option("--seeds", "seeds_file", type=click.Path(dir_okay=False, path_type=Path),
+              default=Path("data") / "seeds.csv", show_default=True,
+              help="Seed list CSV: company, site, careers_url, source "
+                   "(see docs/seeds.example.csv).")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Read at most this many seeds.")
+@click.option("--dry-run", is_flag=True, help="Print the projected request count and exit.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on requests (default 500).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def signal_careers(
+    seeds_file: Path,
+    limit: int | None,
+    dry_run: bool,
+    max_fetches: int | None,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Read each seed company's careers page through Guard and insert new roles.
+
+    A page that links to a Greenhouse, Lever, Ashby or Workable board is handed
+    to that collector; otherwise titles are read from the page. Blocked, missing
+    and robots-denied pages are reported, never worked around.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import Budget, BudgetExceeded, format_projection, project
+    from engine.guard.cache import Cache
+    from engine.guard.http import Guard, GuardConfigError
+    from engine.signal import careers
+    from engine.signal.boards import store
+    from engine.signal.seeds import SeedsError, load_seeds
+
+    try:
+        seeds = load_seeds(seeds_file)
+    except FileNotFoundError:
+        _fail(f"no seed file at {seeds_file}; copy the shape of docs/seeds.example.csv")
+        return
+    except SeedsError as e:
+        _fail(str(e))
+        return
+    if not seeds:
+        _fail(f"{seeds_file} has no seeds")
+        return
+    if limit is not None:
+        seeds = seeds[:limit]
+    budget = Budget() if max_fetches is None else Budget(max_fetches=max_fetches)
+    cache = Cache(cache_dir)
+    if dry_run:
+        click.echo(format_projection(project(careers.page_urls(seeds), cache), budget))
+        click.echo("each page that hands off to an ATS board adds up to "
+                   f"{2 * careers.MAX_HANDOFFS} more (board JSON and its robots.txt)")
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+
+    width = min(30, max(len(s.company) for s in seeds))
+
+    async def run() -> tuple[int, int, int, int]:
+        found = new = errors = 0
+        async with Guard(cache=cache, budget=budget) as g:
+            for seed in seeds:
+                r = await careers.collect_seed(seed, g)
+                added = store(conn, r.signals)
+                found += len(r.signals)
+                new += added
+                errors += len(r.board_errors)
+                src = "cache" if r.from_cache else f"{r.requests} req"
+                status = r.status if r.status is not None else "-"
+                extra = f", {added} new" if r.signals else ""
+                click.echo(f"{seed.company[:width]:<{width}}  {r.outcome:<13} {status!s:>3}  "
+                           f"{src:<7} {r.note}{extra}")
+            return found, new, errors, g.requests_made
+
+    try:
+        found, new, errors, made = asyncio.run(run())
+    except (GuardConfigError, BudgetExceeded) as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    click.echo(f"seeds {len(seeds)}, signals {found}, new {new}, errors {errors}, "
+               f"requests sent {made}")
+    sys.exit(1 if errors else 0)
+
+
+@signal_group.command("add")
+@click.option("--company", required=True, help="Company name as you would write it.")
+@click.option("--title", required=True, help="Job title as posted.")
+@click.option("--url", required=True, help="Where you saw the role (http(s) URL).")
+@click.option("--location", default=None, help="Location as posted.")
+@click.option("--posted-at", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help="Post date, YYYY-MM-DD, if the post shows one.")
+@click.option("--dry-run", is_flag=True, help="Print the row and store nothing.")
+@_db_option
+def signal_add(
+    company: str,
+    title: str,
+    url: str,
+    location: str | None,
+    posted_at: datetime | None,
+    dry_run: bool,
+    db_file: Path | None,
+) -> None:
+    """Record a role you saw yourself (source=manual). Adding it again changes nothing."""
+    from engine import db as dbmod
+    from engine.signal.boards import store
+    from engine.signal.manual import make_signal
+
+    try:
+        sig = make_signal(company=company, title=title, url=url, location=location,
+                          posted_at=posted_at.date() if posted_at else None,
+                          today=datetime.now(UTC).date())
+    except ValueError as e:
+        _fail(str(e))
+        return
+    if dry_run:
+        click.echo(f"would add {sig.signal_id}  {sig.company_name_raw} | {sig.title} | {sig.url}")
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        added = store(conn, [sig])
+    finally:
+        conn.close()
+    verb = "added" if added else "already recorded"
+    click.echo(f"{verb} {sig.signal_id}  {sig.company_name_raw} | {sig.title}")
 
 
 @main.group()

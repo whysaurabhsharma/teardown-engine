@@ -1,4 +1,4 @@
-.PHONY: test smoke signal backup verify
+.PHONY: test smoke signal careers backup verify
 
 test:
 	uv run pytest
@@ -9,6 +9,10 @@ smoke:
 BOARDS ?= data/boards.txt
 signal:
 	uv run te signal collect --boards-file $(BOARDS)
+
+SEEDS ?= data/seeds.csv
+careers:
+	uv run te signal careers --seeds $(SEEDS)
 
 backup:
 	uv run te backup
