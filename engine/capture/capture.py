@@ -471,13 +471,15 @@ async def _ats_board(c: _Capture, t: Target, pages: dict[str, Page],
 
 _COLUMNS = ("url", "outcome", "fetched_at", "cache_path", "status", "body_sha256", "fetcher",
             "detail", "bundle_version")
+# Step 35 output, derived from body_sha256 (extract_text.py).
+_DERIVED = ("text_sha256", "structure_sha256", "extractor_version")
 
 
 def write_rows(conn: sqlite3.Connection, rows: Iterable[Artifact]) -> int:
     """Upsert one row per (company_id, kind); returns how many changed.
 
-    An unchanged row is not touched. A changed body clears text_sha256, which
-    Step 35 derives from the body.
+    An unchanged row is not touched. A changed body clears text_sha256,
+    structure_sha256 and extractor_version, which Step 35 derives from the body.
     """
     changed = 0
     with conn:
@@ -494,9 +496,11 @@ def write_rows(conn: sqlite3.Connection, rows: Iterable[Artifact]) -> int:
             if all(old[k] == new[k] for k in _COLUMNS):
                 continue
             sets = ", ".join(f"{k} = ?" for k in _COLUMNS)
-            text_sha = old["text_sha256"] if old["body_sha256"] == new["body_sha256"] else None
-            conn.execute(f"UPDATE artifacts SET {sets}, text_sha256 = ? WHERE artifact_id = ?",
-                         (*(new[k] for k in _COLUMNS), text_sha, old["artifact_id"]))
+            same = old["body_sha256"] == new["body_sha256"]
+            derived = tuple(old[k] if same else None for k in _DERIVED)
+            conn.execute(f"UPDATE artifacts SET {sets}, "
+                         f"{', '.join(f'{k} = ?' for k in _DERIVED)} WHERE artifact_id = ?",
+                         (*(new[k] for k in _COLUMNS), *derived, old["artifact_id"]))
             changed += 1
     return changed
 

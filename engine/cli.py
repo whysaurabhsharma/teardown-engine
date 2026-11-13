@@ -1282,6 +1282,101 @@ def capture_cmd(
     sys.exit(1 if rep.errors or rep.stopped else 0)
 
 
+@main.group("extract")
+def extract_group() -> None:
+    """Derive text and facts from captured artifacts (no network, no model calls)."""
+
+
+@extract_group.command("text")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Only the pilot and hand sets.")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="At most this many companies.")
+@click.option("--reextract", is_flag=True,
+              help="Re-derive artifacts already extracted at this version and check the "
+                   "hashes are reproduced.")
+@click.option("--dry-run", is_flag=True, help="Count what would be extracted; write nothing.")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def extract_text_cmd(
+    company_id: str | None,
+    pilot: bool,
+    limit: int | None,
+    reextract: bool,
+    dry_run: bool,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Extract text, links and forms from each ok artifact's cached body (Step 35).
+
+    Reads raw bodies from the cache and writes the text and structure back to it;
+    never fetches. Idempotent: an artifact already extracted at this version is
+    skipped. Exits 1 if --reextract finds a hash that is not reproduced.
+    """
+    from engine import db as dbmod
+    from engine.capture import extract_text as X
+    from engine.guard.cache import Cache
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        try:
+            ids = X.select_companies(conn, company_id=company_id, pilot=pilot, limit=limit)
+        except X.ExtractError as e:
+            _fail(str(e))
+            return
+        rep = X.run(conn, Cache(cache_dir), ids, reextract=reextract, dry_run=dry_run)
+    finally:
+        conn.close()
+    verb = "would extract" if dry_run else "written"
+    click.echo(f"extractor {X.EXTRACTOR_VERSION}: companies {rep.companies}, ok artifacts "
+               f"{rep.considered}; {verb} {rep.written}, already current {rep.current}, "
+               f"re-derived identical {rep.reproduced}, body missing {rep.missing_body}")
+    for label in rep.missing:
+        click.echo(f"body not in cache (not fetched): {label}")
+    for label in rep.drift:
+        click.echo(f"DRIFT: {label} re-extracted at {X.EXTRACTOR_VERSION} with a different "
+                   "hash; row left as it was (bump EXTRACTOR_VERSION)")
+    sys.exit(1 if rep.drift else 0)
+
+
+@main.command("show")
+@click.argument("company_id")
+@click.option("--lines", "n_lines", type=click.IntRange(min=0), default=5, show_default=True,
+              help="Lines of extracted text to print per artifact.")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def show_cmd(company_id: str, n_lines: int, cache_dir: Path | None,
+             db_file: Path | None) -> None:
+    """Print COMPANY_ID's evidence bundle: outcomes, text, DNS (Step 36). Read-only."""
+    from engine import db as dbmod
+    from engine.capture.show import ShowError, show_lines
+    from engine.guard.cache import Cache
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        out = show_lines(conn, company_id, Cache(cache_dir), n_lines)
+    except ShowError as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:  # a Windows pipe is cp1252; page text may not be
+        reconfigure(errors="backslashreplace")
+    for line in out:
+        click.echo(line)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

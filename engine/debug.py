@@ -6,6 +6,9 @@ without touching data/:
     record.json            company row, signals, facts, diagnoses, teardowns,
                            touches and artifact rows
     artifacts/<id>.txt     each artifact's text
+    artifacts/<id>.structure.json
+                           its links, buttons, forms and the like (Step 35),
+                           when it has been extracted
 
 Contacts rows are never read into the output. Every value from that company's
 contacts rows (name, title, email, source_url, and each name part of 3+ chars)
@@ -13,9 +16,11 @@ is replaced with "[redacted]" wherever it appears, case-insensitive and
 whole-word, using the same matching as the model gateway's contacts guard.
 Touches lose hubspot_deal_id (it links to a person in HubSpot).
 
-Text extraction does not exist yet, so an artifact's text is its raw cached
-body (found by body_sha256, or text_sha256 on rows from before migration 0009)
-decoded as UTF-8 with errors replaced; record.json notes this per artifact.
+An artifact's text is its extracted text (Step 35, engine/capture/
+extract_text.py), the same text quotes are checked against. An artifact not
+yet extracted at any version falls back to its raw cached body (found by
+body_sha256, or text_sha256 on rows from before migration 0009) decoded as
+UTF-8 with errors replaced. record.json notes per artifact which one it got.
 
 Output is deterministic: the company folder is rewritten from scratch, keys are
 sorted and rows ordered by primary key, so a re-run on unchanged inputs writes
@@ -31,6 +36,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from engine.capture.extract_text import stored_structure, stored_text
 from engine.guard.cache import Cache, sha256_hex
 from engine.llm.gateway import contact_pattern, contact_values
 
@@ -38,6 +44,7 @@ DEFAULT_DEBUG_DIR = Path("debug")
 REDACTED = "[redacted]"
 EXPORT_VERSION = "debug-export-v1"
 RAW_TEXT_NOTE = "raw body decoded as utf-8 (errors replaced); no text extraction yet"
+EXTRACTED_NOTE = "extracted text ({version})"
 
 # table -> ORDER BY
 TABLES: dict[str, str] = {
@@ -147,15 +154,31 @@ def export_company(
 
     texts: dict[str, str] = {}
     for art in record["artifacts"]:
-        # body_sha256 (0009) names the raw body; older rows only had text_sha256.
-        sha = art.get("body_sha256") or art.get("text_sha256")
-        body, note = _body(cache, sha, art.get("cache_path"))
-        art.pop("cache_path", None)  # a local path; the text file replaces it
+        cache_path = art.pop("cache_path", None)  # a local path; the text file replaces it
+        name = f"artifacts/{art['artifact_id']}.txt"
+        if art.get("extractor_version"):
+            text = stored_text(cache, art)
+            if text is not None:
+                art["text_note"] = EXTRACTED_NOTE.format(version=art["extractor_version"])
+                art["text_file"] = name
+                texts[name] = redact.text(text)
+                structure = stored_structure(cache, art)
+                if structure is not None:
+                    sname = f"artifacts/{art['artifact_id']}.structure.json"
+                    art["structure_file"] = sname
+                    texts[sname] = _dump(redact.value(structure))
+                continue
+        # Not extracted (or its text is missing): the raw body. body_sha256 (0009)
+        # names it; rows from before 0009 only had text_sha256.
+        sha = art.get("body_sha256") or (None if art.get("extractor_version")
+                                         else art.get("text_sha256"))
+        body, note = _body(cache, sha, cache_path)
+        if art.get("extractor_version"):
+            note = "extracted text missing from the cache; " + note
         art["text_note"] = note
         if body is None:
             art["text_file"] = None
             continue
-        name = f"artifacts/{art['artifact_id']}.txt"
         art["text_file"] = name
         texts[name] = redact.text(body.decode("utf-8", errors="replace"))
 

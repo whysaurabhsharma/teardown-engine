@@ -5,6 +5,11 @@ never stored as the source. A small index under <cache>/urls/<sha256 of url>.jso
 records the latest fetch of each URL (status, outcome, body hash, when), so a
 repeat fetch of the same URL on the same UTC day is answered without a request.
 
+Derived output (Step 35's extracted text and structure) lives apart from the
+raw bodies, under <cache>/<namespace>/<sha256 of its bytes>, so a raw body is
+never confused with something parsed from it. Derived files can always be
+rebuilt from the raw bodies with no request.
+
 The cache directory resolves like the database: explicit argument, then
 $TE_CACHE_DIR, then data/cache.
 """
@@ -23,6 +28,7 @@ from engine.models import Outcome
 DEFAULT_CACHE_DIR = Path("data") / "cache"
 CACHE_ENV_VAR = "TE_CACHE_DIR"
 INDEX_DIR = "urls"
+DERIVED_NAMESPACES = ("text", "structure")  # extracted text; links/forms JSON (Step 35)
 
 
 def cache_dir(path: str | os.PathLike[str] | None = None) -> Path:
@@ -81,6 +87,26 @@ class Cache:
     def get_body(self, sha: str) -> bytes | None:
         p = self.body_path(sha)
         return p.read_bytes() if p.exists() else None
+
+    def derived_path(self, namespace: str, sha: str) -> Path:
+        if namespace not in DERIVED_NAMESPACES:
+            raise ValueError(f"unknown derived namespace: {namespace!r}")
+        return self.root / namespace / sha
+
+    def put_derived(self, namespace: str, data: bytes) -> str:
+        sha = sha256_hex(data)
+        p = self.derived_path(namespace, sha)
+        if not p.exists():
+            _atomic_write(p, data)
+        return sha
+
+    def get_derived(self, namespace: str, sha: str) -> bytes | None:
+        """The derived bytes, or None if missing or not matching their hash."""
+        p = self.derived_path(namespace, sha)
+        if not p.is_file():
+            return None
+        data = p.read_bytes()
+        return data if sha256_hex(data) == sha else None
 
     def record(self, entry: CacheEntry) -> None:
         _atomic_write(self._index_path(entry.url), entry.model_dump_json().encode("utf-8"))

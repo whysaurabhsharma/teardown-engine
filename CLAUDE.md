@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 3: Steps 32-34 done (capture: bundle-1.0, discovery, guarded fetch, DNS inventory, playwright fallback). protocol-v1 tagged. Gates 1.3 (domain check), 2.1-2.3 and 3.1 need live runs. Next: Steps 35-36.
+Phase 3: Steps 32-36 done (capture, ex-1.0 text extraction, te show). protocol-v1 tagged. Gates 1.3 (domain check), 2.1-2.3 and 3.1 need live runs. Next: Steps 37-38.

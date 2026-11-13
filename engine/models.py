@@ -138,13 +138,15 @@ class Artifact(Row):
     url: NonBlank
     outcome: Outcome
     fetched_at: datetime
-    text_sha256: str | None = None  # hash of the extracted text (Step 35)
+    text_sha256: str | None = None  # extracted text under cache/text/ (Step 35)
     cache_path: str | None = None
     status: int | None = None  # final HTTP status (0009)
     body_sha256: str | None = None  # raw body under data/cache/<sha256> (0009)
     fetcher: Literal["http", "playwright", "dns", "none"] | None = None  # (0009)
     detail: str | None = None  # why, in words (0009)
     bundle_version: str | None = None  # capture/bundle.py BUNDLE_VERSION (0009)
+    structure_sha256: str | None = None  # links/forms JSON under cache/structure/ (0010)
+    extractor_version: str | None = None  # capture/extract_text.py EXTRACTOR_VERSION (0010)
 
 
 class Fact(Row):
