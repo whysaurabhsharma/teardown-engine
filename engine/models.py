@@ -271,11 +271,41 @@ class Claim(BaseModel):
         return self
 
 
+FaithfulnessCategory = Literal[
+    "near_miss",       # rapidfuzz partial ratio >= 95: logged on its own, still a failure
+    "miss",            # the quote is nowhere in the artifact's text, nav/footer or structure
+    "wrong_url",       # a found claim's url is not its artifact's URL
+    "unseen",          # the artifact has no row, or was not seen (blocked, dead, robots_denied)
+    "not_found_invalid",  # a not-found claim whose artifact outcome is not not_found
+    "malformed",       # breaks the claim contract (found without a quote, or the reverse)
+]
+
+
+class FaithfulnessFailure(BaseModel):
+    """One claim the faithfulness check removed (Step 48), kept for the audit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: Annotated[int, Field(ge=0)]  # position in the judge's claims
+    category: FaithfulnessCategory
+    artifact_kind: str
+    found: bool
+    url: str
+    quote: str | None = None
+    text: str
+    score: float | None = None  # best partial ratio, for near_miss and miss
+
+
 class Faithfulness(BaseModel):
+    """diagnoses.faithfulness (engine/judge/faithfulness.py)."""
+
     model_config = ConfigDict(extra="forbid")
 
     checked: Annotated[int, Field(ge=0)]
     passed: Annotated[int, Field(ge=0)]
+    near_miss: Annotated[int, Field(ge=0)] = 0
+    failed: list[FaithfulnessFailure] = Field(default_factory=list)
+    converted: bool = False  # True when the check turned a named gap into an abstention
 
 
 class Diagnosis(Row):

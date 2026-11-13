@@ -215,7 +215,8 @@ def test_diagnosis_round_trips(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT attempted, claims, faithfulness FROM diagnoses").fetchone()
     assert row["attempted"] == 1
     assert json.loads(row["claims"]) == [CLAIM, ABSENT]
-    assert json.loads(row["faithfulness"]) == {"checked": 2, "passed": 2}
+    assert json.loads(row["faithfulness"]) == {"checked": 2, "passed": 2, "near_miss": 0,
+                                               "failed": [], "converted": False}
 
 
 # --- other contracts -----------------------------------------------------------

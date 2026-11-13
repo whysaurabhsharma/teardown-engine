@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 3 code done (32-38, 40-43 tooling); Phase 4 Steps 44-45 tooling done (te gold, migration 0013, G6 allowed, held-out guard). Live gates 1.3, 2.1-2.3, 3.1-3.3, 4.1 open. Next: Steps 46-48 (judge).
+Phase 3 code done (32-38, 40-43 tooling); Phase 4 Steps 44-48 done (gold tooling, judge j-1.0, faithfulness). Live gates 1.3, 2.1-2.3, 3.1-3.3, 4.1-4.2 open. Next: Steps 49-50.

@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify capture extract people backup verify
+.PHONY: test smoke signal careers resolve qualify capture extract people judge backup verify
 
 test:
 	uv run pytest
@@ -38,3 +38,6 @@ extract:
 people:
 	uv run te people list --pilot
 	uv run te people check --pilot
+
+judge:
+	uv run te judge --pilot

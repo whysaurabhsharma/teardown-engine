@@ -11,7 +11,6 @@ import click
 
 STUB_COMMANDS = (
     "understand",
-    "judge",
     "build",
     "draft",
     "send",
@@ -1947,6 +1946,174 @@ def gold_export_teach(out_path: Path | None, db_file: Path | None) -> None:
     if reconfigure is not None:  # a Windows pipe is cp1252; quotes may not be
         reconfigure(errors="backslashreplace")
     click.echo(text, nl=False)
+
+
+def _judge_options(f):
+    for opt in reversed((
+        click.option("--company", "company_id", default=None, help="Only this company_id."),
+        click.option("--pilot", is_flag=True, help="Only the pilot and hand sets."),
+        click.option("--limit", type=click.IntRange(min=1), default=None,
+                     help="At most this many companies."),
+        click.option("--no-examples", is_flag=True,
+                     help="Dry test without the teach examples (no gold split yet): keyed on "
+                          "the prompt version + '+noex' and never moves a status."),
+        click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path),
+                     default=None, help="Cache directory (default: $TE_CACHE_DIR or data/cache)."),
+        _db_option,
+    )):
+        f = opt(f)
+    return f
+
+
+def _faithfulness_lines(f) -> list[str]:
+    return [f"  failed claim {x.index} [{x.artifact_kind}]: {x.category}"
+            + (f" (score {x.score})" if x.score is not None else "") for x in f.failed]
+
+
+@main.group("judge", invoke_without_command=True)
+@_judge_options
+@click.option("--dry-run", is_flag=True,
+              help="Print each prompt's size and the projected calls; no call, no write.")
+@click.pass_context
+def judge_cmd(ctx: click.Context, company_id: str | None, pilot: bool, limit: int | None,
+              no_examples: bool, cache_dir: Path | None, db_file: Path | None,
+              dry_run: bool) -> None:
+    """Name the gap each company's pages show, or abstain (E5, Steps 46-48).
+
+    One model call per company through the gateway, keyed on (judge, company_id,
+    prompt_version): a re-run makes no call. The faithfulness check runs on every
+    result before it is stored. A named gap moves extracted -> diagnosed; an
+    abstention drops the company as no_gap. Refuses to run without the teach
+    split unless --no-examples. Exits 1 on any scoring_failed, refused or error.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    from engine import db as dbmod
+    from engine.guard.budget import BudgetExceeded
+    from engine.guard.cache import Cache
+    from engine.judge import judge as J
+
+    problem = J.table_problem()
+    if problem:
+        _fail(f"refused: {problem}")
+        return
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    cache = Cache(cache_dir)
+    bad = 0
+    counts: dict[str, int] = {}
+    calls = 0
+    try:
+        try:
+            ids = J.select(conn, company_id=company_id, pilot=pilot, limit=limit)
+        except J.JudgeError as e:
+            _fail(f"refused: {e}")
+            return
+        examples = None
+        if not no_examples:
+            try:
+                examples = J.teach_examples(conn)
+            except J.JudgeError as e:
+                if not dry_run:
+                    _fail(f"refused: {e}")
+                    return
+                click.echo(f"warning: a real run would refuse: {e}")
+        version = J.version_for(examples is None)
+        if dry_run:
+            d = J.dry_run(conn, cache, ids, examples=examples)
+            for r in d.rows:
+                what = "would call" if r.would_call else f"no call: {r.reason}"
+                masked = f", {r.masked} contact values masked" if r.masked else ""
+                click.echo(f"{r.company_id}: prompt {r.chars} chars (~{r.chars // 4} tokens)"
+                           f"{masked}; {what}")
+            biggest = max((r.chars for r in d.rows), default=0)
+            click.echo(f"dry run {version}: companies {len(d.rows)}; projected calls {d.calls}; "
+                       f"largest prompt {biggest} chars (~{biggest // 4} tokens)")
+            return
+        try:
+            for cid in ids:
+                r = J.judge_company(conn, cache, cid, examples=examples)
+                counts[r.outcome] = counts.get(r.outcome, 0) + 1
+                calls += r.calls
+                line = f"{cid}: {r.outcome}: {r.detail[:160]}"
+                f = r.diagnosis.faithfulness if r.diagnosis is not None else None
+                if f is not None:
+                    line += f"; claims {f.passed}/{f.checked} passed"
+                    if f.near_miss:
+                        line += f", near miss {f.near_miss}"
+                if r.masked:
+                    line += f"; {r.masked} contact values masked"
+                if r.status:
+                    line += f"; {r.status}"
+                click.echo(line)
+                if f is not None:
+                    for x in _faithfulness_lines(f):
+                        click.echo(x)
+                if r.outcome in ("scoring_failed", "refused", "error"):
+                    bad += 1
+        except BudgetExceeded as e:
+            click.echo(f"stopped: {e}")
+            bad += 1
+    finally:
+        conn.close()
+    summary = ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+    click.echo(f"judge {version}: companies {sum(counts.values())}: {summary or 'none'}; "
+               f"provider calls {calls}")
+    sys.exit(1 if bad else 0)
+
+
+@judge_cmd.command("faithfulness")
+@_judge_options
+@click.option("--dry-run", is_flag=True, help="Check and print; write nothing.")
+def judge_faithfulness(company_id: str | None, pilot: bool, limit: int | None,
+                       no_examples: bool, cache_dir: Path | None, db_file: Path | None,
+                       dry_run: bool) -> None:
+    """Re-run the faithfulness check on stored diagnoses (Step 48), from the judge's
+    original output. Updates claims and faithfulness; an abstention drops as no_gap."""
+    from engine import db as dbmod
+    from engine.guard.cache import Cache
+    from engine.judge import judge as J
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    version = J.version_for(no_examples)
+    cache = Cache(cache_dir)
+    n = 0
+    try:
+        try:
+            if company_id is not None:
+                if J.stored(conn, company_id, version) is None:
+                    _fail(f"{company_id}: no diagnosis at {version}")
+                    return
+                ids = [company_id]
+            else:
+                ids = [c for c in J.select(conn, pilot=pilot) if J.stored(conn, c, version)]
+                ids = ids[:limit] if limit is not None else ids
+            for cid in ids:
+                r = J.refaithful(conn, cache, cid, prompt_version=version, dry_run=dry_run)
+                f = r.diagnosis.faithfulness if r.diagnosis is not None else None
+                line = f"{cid}: {r.outcome}: {r.detail[:160]}"
+                if f is not None:
+                    line += f"; claims {f.passed}/{f.checked} passed, near miss {f.near_miss}"
+                if r.status:
+                    line += f"; {r.status}"
+                click.echo(("dry run: " if dry_run else "") + line)
+                if f is not None:
+                    for x in _faithfulness_lines(f):
+                        click.echo(x)
+                n += 1
+        except J.JudgeError as e:
+            _fail(f"refused: {e}")
+            return
+    finally:
+        conn.close()
+    click.echo(f"faithfulness {version}: diagnoses checked {n}")
 
 
 @main.group()
