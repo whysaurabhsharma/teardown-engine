@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 3 code done (32-38, 40-43 tooling); Phase 4 Steps 44-50 done (gold tooling, judge j-1.0, faithfulness, verifier v-1.0, te judge score). Live gates 1.3, 2.1-2.3, 3.1-3.3, 4.1-4.2 open. Next: Stage 4.3 (Steps 51-54).
+Phases 1-3 code done; Phase 4 Steps 44-53 done (gold, judge, faithfulness, verifier, score, te teardown init|check|render, data/sender.yaml). Live gates 1.3, 2.1-2.3, 3.1-3.3, 4.1-4.2 open. Next: Step 54 (Gmail drafts).

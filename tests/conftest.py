@@ -16,9 +16,14 @@ def _no_default_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_real_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Keep tests off data/cache and .env; no test starts with a SENDER_EMAIL."""
+    """Keep tests off data/ (cache, teardowns, sender), site/ and .env; no test starts
+    with a SENDER_EMAIL or a TEARDOWN_BASE_URL."""
     monkeypatch.setenv("TE_CACHE_DIR", str(tmp_path / "default" / "cache"))
     monkeypatch.setenv("TE_NO_DOTENV", "1")
+    monkeypatch.setenv("TE_TEARDOWNS_DIR", str(tmp_path / "default" / "teardowns"))
+    monkeypatch.setenv("TE_SENDER", str(tmp_path / "default" / "sender.yaml"))
+    monkeypatch.setenv("TE_SITE_DIR", str(tmp_path / "default" / "site"))
+    monkeypatch.delenv("TEARDOWN_BASE_URL", raising=False)
     monkeypatch.delenv("SENDER_EMAIL", raising=False)
 
 

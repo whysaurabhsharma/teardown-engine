@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify capture extract people judge backup verify
+.PHONY: test smoke signal careers resolve qualify capture extract people judge build backup verify
 
 test:
 	uv run pytest
@@ -41,3 +41,7 @@ people:
 
 judge:
 	uv run te judge --pilot
+
+build:
+	uv run te teardown check --pilot
+	uv run te teardown render --pilot

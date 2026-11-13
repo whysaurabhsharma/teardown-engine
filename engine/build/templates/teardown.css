@@ -1,0 +1,39 @@
+/* teardown.css: one stylesheet, a page that reads like a document. No web fonts. */
+:root {
+  --ink: #1f2328;
+  --muted: #59636e;
+  --rule: #d1d9e0;
+  --link: #0a58ca;
+  --paper: #ffffff;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  padding: 0 16px;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.6 Georgia, "Times New Roman", serif;
+}
+main, footer { max-width: 680px; margin: 0 auto; }
+main { padding: 32px 0 8px; }
+h1 { font-size: 1.6rem; line-height: 1.3; margin: 0 0 4px; }
+h2 { font-size: 1.15rem; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--rule); }
+p { margin: 0 0 12px; }
+.meta { color: var(--muted); }
+ul { padding-left: 20px; margin: 0 0 12px; }
+li { margin: 0 0 6px; }
+a { color: var(--link); overflow-wrap: anywhere; }
+q { font-style: italic; }
+.not-found { color: var(--muted); }
+.table { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--rule); }
+th { font-weight: bold; }
+td.source { min-width: 12rem; }
+footer { padding: 16px 0 40px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.85rem; }
+footer p { margin: 0 0 6px; }
+@media (max-width: 480px) {
+  body { font-size: 16px; }
+  h1 { font-size: 1.35rem; }
+}

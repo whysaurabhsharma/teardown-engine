@@ -2264,6 +2264,162 @@ def judge_score(reveal_held_out: bool, dry_run: bool, cache_dir: Path | None,
     sys.exit(0 if score.passed else 1)
 
 
+# --- teardown (Steps 52-53) ----------------------------------------------------------
+
+_teardowns_option = click.option(
+    "--dir", "teardowns_dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+    help="Teardown files folder (default: $TE_TEARDOWNS_DIR or data/teardowns).")
+_sender_option = click.option(
+    "--sender", "sender_file", type=click.Path(dir_okay=False, path_type=Path), default=None,
+    help="Sender file (default: $TE_SENDER or data/sender.yaml).")
+
+
+def _conn_or_fail(db_file: Path | None):
+    from engine import db as dbmod
+
+    try:
+        return dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+
+
+@main.group("teardown")
+def teardown_group() -> None:
+    """Pilot teardowns: write (init), check and render the page."""
+
+
+@teardown_group.command("init-sender")
+@_sender_option
+@click.option("--force", is_flag=True, help="Overwrite an existing sender file.")
+def teardown_init_sender(sender_file: Path | None, force: bool) -> None:
+    """Write a sender.yaml skeleton (name, identity, section 8, postal address)."""
+    from engine.build import sender as S
+
+    try:
+        p = S.init(sender_file, force=force)
+    except S.SenderError as e:
+        _fail(f"refused: {e}")
+        return
+    click.echo(f"wrote {p}; fill every TODO")
+
+
+@teardown_group.command("init")
+@click.argument("company_id")
+@_teardowns_option
+@click.option("--force", is_flag=True, help="Overwrite an existing teardown file.")
+@_db_option
+def teardown_init(company_id: str, teardowns_dir: Path | None, force: bool,
+                  db_file: Path | None) -> None:
+    """Write data/teardowns/COMPANY_ID.yaml from the stored diagnosis."""
+    from engine.build import teardown as T
+
+    conn = _conn_or_fail(db_file)
+    try:
+        p = T.init(conn, company_id, directory=teardowns_dir, force=force)
+    except T.TeardownError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    click.echo(f"wrote {p}; write sections 3, 4, 5, 6 and 7, then te teardown check "
+               f"{company_id}")
+
+
+def _echo_check(chk) -> None:
+    for f in chk.failures:
+        click.echo(f"{chk.company_id}: {f}")
+    click.echo(f"{chk.company_id}: " + ("ok" if chk.ok else f"{len(chk.failures)} failure(s)"))
+
+
+@teardown_group.command("check")
+@click.argument("company_id", required=False)
+@click.option("--company", "company_opt", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every pilot company with a teardown file.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@_teardowns_option
+@_sender_option
+@_db_option
+def teardown_check(company_id: str | None, company_opt: str | None, pilot: bool,
+                   limit: int | None, teardowns_dir: Path | None, sender_file: Path | None,
+                   db_file: Path | None) -> None:
+    """Check teardown files against TEARDOWN_SPEC; exit 1 on any failure."""
+    from engine.build import render as R
+    from engine.build import teardown as T
+
+    cid = company_id or company_opt
+    if not cid and not pilot:
+        _fail("give a company_id, --company or --pilot")
+        return
+    conn = _conn_or_fail(db_file)
+    bad = 0
+    try:
+        ids = R.select(conn, company_id=cid, pilot=pilot, limit=limit)
+        if pilot and not cid:
+            ids = [i for i in ids if T.file_for(i, teardowns_dir).exists()]
+        for i in ids:
+            try:
+                chk = T.check(conn, i, directory=teardowns_dir, sender_file=sender_file)
+            except T.TeardownError as e:
+                click.echo(f"{i}: error: {e}")
+                bad += 1
+                continue
+            _echo_check(chk)
+            bad += not chk.ok
+    finally:
+        conn.close()
+    sys.exit(1 if bad else 0)
+
+
+@teardown_group.command("render")
+@click.argument("company_id", required=False)
+@click.option("--company", "company_opt", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every pilot company (not dropped).")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--dry-run", is_flag=True, help="Check and render in memory; write nothing.")
+@_teardowns_option
+@_sender_option
+@click.option("--site-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Output folder (default: $TE_SITE_DIR or site/).")
+@_db_option
+def teardown_render(company_id: str | None, company_opt: str | None, pilot: bool,
+                    limit: int | None, dry_run: bool, teardowns_dir: Path | None,
+                    sender_file: Path | None, site_dir: Path | None,
+                    db_file: Path | None) -> None:
+    """Render site/<slug>/index.html for each teardown that passes the check."""
+    from engine.build import render as R
+    from engine.build import teardown as T
+
+    cid = company_id or company_opt
+    if not cid and not pilot:
+        _fail("give a company_id, --company or --pilot")
+        return
+    conn = _conn_or_fail(db_file)
+    bad = 0
+    try:
+        for i in R.select(conn, company_id=cid, pilot=pilot, limit=limit):
+            if not cid and not T.file_for(i, teardowns_dir).exists():
+                click.echo(f"{i}: skipped: no teardown file (te teardown init {i})")
+                continue
+            r = R.render_company(conn, i, teardowns=teardowns_dir, sender_file=sender_file,
+                                 site=site_dir, dry_run=dry_run)
+            for f in r.failures:
+                click.echo(f"{i}: {f}")
+            if r.outcome in ("refused", "error"):
+                bad += 1
+                click.echo(f"{i}: {r.outcome}: {r.detail}")
+                continue
+            where = str(r.path) if r.path else "(no slug yet; a real render generates one)"
+            click.echo(f"{i}: {r.outcome} {where}")
+            if r.url:
+                click.echo(f"{i}: url {r.url}")
+            elif r.slug:
+                click.echo(f"{i}: url not known: set {R.BASE_URL_ENV_VAR} in .env; the page "
+                           f"will live at <base>/{r.slug}/")
+    finally:
+        conn.close()
+    sys.exit(1 if bad else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

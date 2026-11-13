@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="generator" content="teardown-engine {{ p.renderer_version }}">
+<title>{{ p.company }}: notes for your {{ p.role }} hire</title>
+<link rel="stylesheet" href="teardown.css">
+</head>
+<body>
+<main>
+<section id="s1" data-section="1" class="header">
+<h1>{{ p.company }}: notes for your {{ p.role }} hire</h1>
+<p class="meta">{{ p.date }} · {{ p.sender_name }}</p>
+</section>
+
+<section id="s2" data-section="2">
+<h2>What I looked at</h2>
+<ul class="looked">
+{% for x in p.looked %}
+<li class="{{ 'found' if x.found else 'not-found' }}">{% if x.found %}{{ x.label }}: found. {% else %}{{ x.line }}. {% endif %}{% if x.src.href %}<a href="{{ x.src.href }}">{{ x.src.text }}</a>{% else %}{{ x.src.text }}{% endif %}, captured {{ x.captured }}</li>
+{% endfor %}
+</ul>
+</section>
+
+<section id="s3" data-section="3">
+<h2>What your {{ p.role }} will need</h2>
+<p>{{ p.need|join(" ") }}</p>
+<ul class="evidence">
+{% for e in p.evidence %}
+{% if e.found %}
+<li class="found"><q>{{ e.quote }}</q> {% if e.src.href %}<a href="{{ e.src.href }}">{{ e.src.text }}</a>{% else %}{{ e.src.text }}{% if e.captured %}, looked up {{ e.captured }}{% endif %}{% endif %}</li>
+{% else %}
+<li class="not-found">{{ e.line }}. {% if e.src.href %}<a href="{{ e.src.href }}">{{ e.src.text }}</a>{% else %}{{ e.src.text }}{% endif %}{% if e.captured %}, captured {{ e.captured }}{% endif %}</li>
+{% endif %}
+{% endfor %}
+</ul>
+</section>
+
+<section id="s4" data-section="4">
+<h2>Why now</h2>
+<p>{{ p.why_now }}</p>
+</section>
+
+<section id="s5" data-section="5">
+<h2>What I would build</h2>
+<ul>
+{% for b in p.build %}
+<li>{{ b }}</li>
+{% endfor %}
+</ul>
+</section>
+
+<section id="s6" data-section="6">
+<h2>Already built for you</h2>
+<p>{{ p.slice_title }}</p>
+<div class="table">
+<table>
+<thead>
+<tr>{% for c in p.slice_columns %}<th scope="col">{{ c }}</th>{% endfor %}<th scope="col">Source</th></tr>
+</thead>
+<tbody>
+{% for r in p.slice_rows %}
+<tr>{% for c in r.cells %}<td{% if c == "not found" %} class="not-found"{% endif %}>{{ c }}</td>{% endfor %}<td class="source"><q>{{ r.quote }}</q> {% if r.src.href %}<a href="{{ r.src.href }}">{{ r.src.text }}</a>{% else %}{{ r.src.text }}{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="s7" data-section="7">
+<h2>What I might have wrong</h2>
+<p>{{ p.might_have_wrong }}</p>
+</section>
+
+<section id="s8" data-section="8">
+<h2>About me, and what I am looking for</h2>
+{% for line in p.about %}
+<p>{{ line }}</p>
+{% endfor %}
+<p class="links">{% for lk in p.links %}<a href="{{ lk.url }}">{{ lk.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+<p class="offer">{{ p.offer }}</p>
+</section>
+</main>
+
+<footer>
+<p>{{ p.postal_address }}</p>
+<p>{{ p.opt_out }}</p>
+<p>This page is unlisted and will be deleted on request.</p>
+</footer>
+</body>
+</html>
