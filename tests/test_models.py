@@ -235,8 +235,23 @@ def test_gold_gap_or_abstain() -> None:
     with pytest.raises(ValidationError):
         Gold(**base, abstain=False)
     with pytest.raises(ValidationError):
-        Gold(**dict(base, split="test"), abstain=True)
-    Gold(**base, abstain=True)
+        Gold(**dict(base, split="test"), abstain=True, abstain_reason="thin: one page")
+    Gold(**base, abstain=True, abstain_reason="thin: one page")
+    Gold(**base, abstain=False, gap_type="G6")  # provisional G6 (GAPS.md v1.2, 0013)
+
+
+@pytest.mark.parametrize("reason", [None, "", "no reason code", "thin:", "thin:   ",
+                                    "Thin: upper case", "maybe: unknown code"])
+def test_gold_abstain_reason_needs_a_code_and_text(reason: str | None) -> None:
+    base = {"company_id": "c", "split": "teach", "gaps_version": "v1.2", "abstain": True}
+    with pytest.raises(ValidationError):
+        Gold(**base, abstain_reason=reason)
+
+
+def test_gold_gap_row_has_no_abstain_reason() -> None:
+    with pytest.raises(ValidationError):
+        Gold(company_id="c", split="teach", gaps_version="v1.2", abstain=False,
+             gap_type="G1", abstain_reason="thin: x")
 
 
 def test_foreign_keys_enforced(conn: sqlite3.Connection) -> None:
@@ -266,7 +281,7 @@ def test_secondary_excludes_own_gap() -> None:
         Diagnosis(**dict(DIAG, gap_type="G1", secondary=["G2", "G1"]))
 
 
-@pytest.mark.parametrize("gap_type", ["G6", "G1_hiring_ahead_of_targeting", "g1"])
+@pytest.mark.parametrize("gap_type", ["G7", "G1_hiring_ahead_of_targeting", "g1"])
 def test_gap_type_only_gap_ids(gap_type: str) -> None:
     with pytest.raises(ValidationError):
         Diagnosis(**dict(DIAG, gap_type=gap_type))
@@ -284,7 +299,7 @@ def test_database_rejects_unknown_gap_type(conn: sqlite3.Connection) -> None:
 
 def test_secondary_only_gap_ids() -> None:
     with pytest.raises(ValidationError):
-        Diagnosis(**dict(DIAG, secondary=["G6"]))
+        Diagnosis(**dict(DIAG, secondary=["G7"]))
     assert Diagnosis(**dict(DIAG, secondary=["G2", "G5"])).secondary == ["G2", "G5"]
 
 

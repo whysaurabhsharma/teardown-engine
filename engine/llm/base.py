@@ -35,6 +35,10 @@ class ContactInPrompt(LlmError):
     """The prompt contains a value from the contacts table. Nothing was sent."""
 
 
+class HeldOutInPrompt(LlmError):
+    """The prompt contains a quote from a held_out gold row. Nothing was sent."""
+
+
 class SchemaInvalid(LlmError):
     """The output failed schema validation twice (the call and its one retry)."""
 

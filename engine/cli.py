@@ -1,6 +1,7 @@
 """Command-line entry point: `te`."""
 
 import asyncio
+import json
 import os
 import sys
 from datetime import UTC, datetime
@@ -1739,6 +1740,213 @@ def people_pattern(company_id: str, first: str | None, last: str | None, verify:
     click.echo(f"inferred address: {addr} (confidence {level})")
     click.echo(f"to record it: te people add {company_id} ... --email <the address> "
                f"--confidence {level} --email-source pattern{flag}")
+
+
+# --- gold set (Steps 44-45, Gate 4.1) ----------------------------------------------
+
+
+@main.group("gold")
+def gold_group() -> None:
+    """The gold set: hand-written diagnoses, the teach/held_out split, Gate 4.1.
+
+    The person writes each diagnosis; these commands check quotes against the
+    captured bundle and store them. held_out rows are never shown to the judge,
+    in a prompt, a skill, a fixture or a chat.
+    """
+
+
+def _gold_conn(db_file: Path | None):
+    from engine import db as dbmod
+
+    try:
+        return dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+
+
+@gold_group.command("add")
+@click.argument("company_id")
+@click.option("--gap", type=click.Choice(["G1", "G2", "G3", "G4", "G5", "G6"]), default=None,
+              help="The gap the pages show.")
+@click.option("--abstain", "abstain_reason", default=None, metavar="REASON",
+              help='Abstain instead; starts "no_evidence:", "contradicted:" or "thin:".')
+@click.option("--quote", "quotes", type=(str, str), multiple=True, metavar="KIND TEXT",
+              help="A verbatim quote from the company's KIND artifact. Repeatable.")
+@click.option("--not-found", "not_found", multiple=True, metavar="KIND",
+              help="KIND's capture outcome is not_found (an absence). Repeatable.")
+@click.option("--split", type=click.Choice(["teach", "held_out"]), default=None,
+              help="Default: the company's existing split, else held_out.")
+@click.option("--gaps-version", default=None,
+              help="GAPS.md version the diagnosis was written under (default: the file's, "
+                   "e.g. v1.2).")
+@click.option("--note", default=None, help="A ruling or doubt, in your words.")
+@click.option("--replace", is_flag=True, help="Overwrite a different row at this gaps version.")
+@click.option("--dry-run", is_flag=True, help="Check and print; write nothing.")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def gold_add(company_id: str, gap: str | None, abstain_reason: str | None,
+             quotes: tuple[tuple[str, str], ...], not_found: tuple[str, ...], split: str | None,
+             gaps_version: str | None, note: str | None, replace: bool, dry_run: bool,
+             cache_dir: Path | None, db_file: Path | None) -> None:
+    """Record COMPANY_ID's gold diagnosis (Step 45). Each quote is checked against
+    the captured artifact; a gap needs evidence from two kinds with one found quote.
+    Quotes are not echoed."""
+    from engine.guard.cache import Cache
+    from engine.judge import gold as G
+
+    conn = _gold_conn(db_file)
+    try:
+        try:
+            plan = G.plan_add(conn, Cache(cache_dir), company_id, gap=gap,
+                              abstain_reason=abstain_reason, quotes=list(quotes),
+                              not_found=list(not_found), split=split,
+                              gaps_version=gaps_version, note=note)
+        except G.GoldError as e:
+            _fail(f"refused: {company_id}: {e}")
+            return
+        for w in plan.warnings:
+            click.echo(f"warning: {w}")
+        r = plan.row
+        kinds = sorted({e.kind for e in r.evidence})
+        what = (f"{r.split}; {r.gaps_version}; evidence {len(r.evidence)} "
+                f"({sum(e.found for e in r.evidence)} found) from {', '.join(kinds) or 'none'}")
+        if dry_run:
+            verb = ("unchanged" if plan.unchanged else
+                    "would replace" if plan.existing is not None else "would add")
+            click.echo(f"dry run: {company_id}: {verb}: {what}")
+            return
+        try:
+            done = G.write(conn, plan, replace=replace)
+        except G.GoldError as e:
+            _fail(f"refused: {e}")
+            return
+    finally:
+        conn.close()
+    click.echo(f"{company_id}: {done}: {what}")
+
+
+@gold_group.command("split")
+@click.option("--teach", "teach", nargs=5, required=True, metavar="ID ID ID ID ID",
+              help="Exactly five company_ids: both segments, three gap types, one abstention.")
+@click.option("--force", is_flag=True, help="Replace a different teach five already recorded.")
+@click.option("--dry-run", is_flag=True, help="Check and print; write nothing.")
+@_db_option
+def gold_split(teach: tuple[str, ...], force: bool, dry_run: bool, db_file: Path | None) -> None:
+    """Mark five companies teach and every other gold company held_out (Step 45)."""
+    from engine.judge import gold as G
+
+    conn = _gold_conn(db_file)
+    try:
+        try:
+            plan = G.plan_split(conn, list(teach), force=force)
+        except G.GoldError as e:
+            _fail(f"refused: {e}")
+            return
+        if not dry_run:
+            G.write_split(conn, plan)
+    finally:
+        conn.close()
+    prefix = "dry run: would set" if dry_run else "set"
+    click.echo(f"{prefix} teach {len(plan.teach)}: {', '.join(plan.teach)}")
+    click.echo(f"{prefix} held_out {len(plan.held_out)}; gold rows changed {plan.changed}")
+    click.echo("from here on, held-out diagnoses never go into a prompt, a skill or a chat")
+
+
+@gold_group.command("list")
+@click.option("--reveal-held-out", is_flag=True,
+              help="Also print held-out gaps and reasons: to a terminal only.")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most this many.")
+@click.option("--pilot", is_flag=True, help="Only pilot companies.")
+@click.option("--dry-run", is_flag=True, help="Read-only anyway; accepted for convention.")
+@_db_option
+def gold_list(reveal_held_out: bool, company_id: str | None, limit: int | None, pilot: bool,
+              dry_run: bool, db_file: Path | None) -> None:
+    """List each gold company's split, and for teach rows its gap or abstention.
+    Held-out rows show only company and split unless --reveal-held-out."""
+    from engine.judge import gold as G
+
+    if reveal_held_out:
+        if not _stdout_is_terminal():
+            _fail("refused: --reveal-held-out prints held-out diagnoses and only to a "
+                  "terminal; stdout is redirected to a file or a pipe")
+            return
+        click.echo("WARNING: held-out diagnoses below. Never paste them into a prompt, a "
+                   "skill, a fixture or a chat; they exist only to score the judge.")
+    conn = _gold_conn(db_file)
+    try:
+        rows = G.current_rows(conn)
+        pilots = {r[0] for r in conn.execute("SELECT company_id FROM companies WHERE pilot = 1")}
+    finally:
+        conn.close()
+    ids = sorted(c for c in rows if (company_id is None or c == company_id)
+                 and (not pilot or c in pilots))
+    if limit is not None:
+        ids = ids[:limit]
+    click.echo(f"{'company':<30} {'split':<9} {'version':<8} {'segment':<14} call")
+    for c in ids:
+        r = rows[c]
+        if r["split"] == "held_out" and not reveal_held_out:
+            click.echo(f"{c[:30]:<30} {r['split']:<9}")
+            continue
+        call = r["gap_type"] or f"abstain ({r['abstain_reason']})"
+        n = len(json.loads(r["evidence"]))
+        click.echo(f"{c[:30]:<30} {r['split']:<9} {r['gaps_version']:<8} "
+                   f"{r['segment'] or '-':<14} {call}; evidence {n}")
+    counts = {s: sum(1 for c in ids if rows[c]["split"] == s) for s in ("teach", "held_out")}
+    click.echo(f"companies {len(ids)}: teach {counts['teach']}, held_out {counts['held_out']}")
+
+
+@gold_group.command("check")
+@_db_option
+def gold_check(db_file: Path | None) -> None:
+    """Gate 4.1: eighteen gold rows, the split recorded (5 teach, 13 held_out),
+    GAPS.md at v2. Exit 1 if any fails."""
+    from engine.judge import gold as G
+
+    conn = _gold_conn(db_file)
+    try:
+        lines, warnings = G.gate(conn)
+    finally:
+        conn.close()
+    for line in lines:
+        click.echo(f"{'ok' if line.ok else 'FAIL':<4} {line.text}")
+    for w in warnings:
+        click.echo(f"warning: {w}")
+    ok = all(line.ok for line in lines)
+    click.echo("Gate 4.1 " + ("passes" if ok else "fails"))
+    sys.exit(0 if ok else 1)
+
+
+@gold_group.command("export-teach")
+@click.option("--out", "out_path", type=click.Path(dir_okay=False, path_type=Path), default=None,
+              help="Write the JSON here instead of stdout.")
+@_db_option
+def gold_export_teach(out_path: Path | None, db_file: Path | None) -> None:
+    """Print the five teach diagnoses as JSON for the judge prompt. Refuses when the
+    split is not recorded; never includes a held_out row."""
+    from engine.judge import gold as G
+
+    conn = _gold_conn(db_file)
+    try:
+        try:
+            rows = G.teach_export(conn)
+        except G.GoldError as e:
+            _fail(f"refused: {e}")
+            return
+    finally:
+        conn.close()
+    text = json.dumps(rows, ensure_ascii=False, indent=2) + "\n"
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text, encoding="utf-8", newline="\n")
+        click.echo(f"wrote {len(rows)} teach diagnoses to {out_path}")
+        return
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:  # a Windows pipe is cp1252; quotes may not be
+        reconfigure(errors="backslashreplace")
+    click.echo(text, nl=False)
 
 
 @main.group()

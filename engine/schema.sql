@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 12), for reading.
+-- engine/schema.sql: the current full schema (version 13), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -199,24 +199,81 @@ CREATE INDEX contacts_company ON contacts(company_id);
 -- contacts.confidence, email_source and linkedin_url were added by
 -- 0012_contact_people (the People step, engine/people/).
 
+-- gold and diagnoses were rebuilt by 0013_gold_g6: G6 allowed in gap_type,
+-- gold.abstain_reason (one of the three GAPS.md codes) and gold.notes added,
+-- gold evidence checked by triggers.
 CREATE TABLE gold (
-    gold_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    company_id   TEXT NOT NULL REFERENCES companies(company_id),
-    gap_type     TEXT CHECK (gap_type IN ('G1','G2','G3','G4','G5')),
-    abstain      INTEGER NOT NULL CHECK (abstain IN (0, 1)),
-    evidence     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence)),
-    split        TEXT NOT NULL CHECK (split IN ('teach', 'held_out')),
-    gaps_version TEXT NOT NULL,
+    gold_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id     TEXT NOT NULL REFERENCES companies(company_id),
+    gap_type       TEXT CHECK (gap_type IN ('G1','G2','G3','G4','G5','G6')),
+    abstain        INTEGER NOT NULL CHECK (abstain IN (0, 1)),
+    abstain_reason TEXT,
+    evidence       TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence)),
+    split          TEXT NOT NULL CHECK (split IN ('teach', 'held_out')),
+    gaps_version   TEXT NOT NULL,
+    notes          TEXT,
     UNIQUE (company_id, gaps_version),
-    CHECK ((abstain = 1) = (gap_type IS NULL))
+    CHECK ((abstain = 1) = (gap_type IS NULL)),
+    CHECK ((abstain = 0 AND abstain_reason IS NULL)
+        OR (abstain = 1 AND abstain_reason IS NOT NULL
+            AND (substr(abstain_reason, 1, 12) = 'no_evidence:'
+                 OR substr(abstain_reason, 1, 13) = 'contradicted:'
+                 OR substr(abstain_reason, 1, 5) = 'thin:')
+            AND length(trim(substr(abstain_reason, instr(abstain_reason, ':') + 1))) > 0))
 );
+
+CREATE TRIGGER gold_evidence_insert
+BEFORE INSERT ON gold
+WHEN json_type(NEW.evidence) IS NOT 'array' OR EXISTS (
+    SELECT 1 FROM json_each(NEW.evidence)
+    WHERE CASE
+        WHEN type IS NOT 'object' THEN 1
+        WHEN json_type(value, '$.kind') IS NOT 'text' THEN 1
+        WHEN length(trim(json_extract(value, '$.kind'))) = 0 THEN 1
+        WHEN json_type(value, '$.url') IS NOT 'text' THEN 1
+        WHEN length(trim(json_extract(value, '$.url'))) = 0 THEN 1
+        WHEN json_type(value, '$.found') = 'true' THEN
+            CASE
+                WHEN json_type(value, '$.quote') IS NOT 'text' THEN 1
+                WHEN length(trim(json_extract(value, '$.quote'))) = 0 THEN 1
+                ELSE 0 END
+        WHEN json_type(value, '$.found') = 'false' THEN
+            CASE WHEN coalesce(json_type(value, '$.quote'), 'null') = 'null' THEN 0
+                 ELSE 1 END
+        ELSE 1 END)
+BEGIN
+    SELECT RAISE(ABORT, 'gold evidence: an array of {kind, found, url, quote}; found needs a quote, not found has none');
+END;
+
+CREATE TRIGGER gold_evidence_update
+BEFORE UPDATE OF evidence ON gold
+WHEN json_type(NEW.evidence) IS NOT 'array' OR EXISTS (
+    SELECT 1 FROM json_each(NEW.evidence)
+    WHERE CASE
+        WHEN type IS NOT 'object' THEN 1
+        WHEN json_type(value, '$.kind') IS NOT 'text' THEN 1
+        WHEN length(trim(json_extract(value, '$.kind'))) = 0 THEN 1
+        WHEN json_type(value, '$.url') IS NOT 'text' THEN 1
+        WHEN length(trim(json_extract(value, '$.url'))) = 0 THEN 1
+        WHEN json_type(value, '$.found') = 'true' THEN
+            CASE
+                WHEN json_type(value, '$.quote') IS NOT 'text' THEN 1
+                WHEN length(trim(json_extract(value, '$.quote'))) = 0 THEN 1
+                ELSE 0 END
+        WHEN json_type(value, '$.found') = 'false' THEN
+            CASE WHEN coalesce(json_type(value, '$.quote'), 'null') = 'null' THEN 0
+                 ELSE 1 END
+        ELSE 1 END)
+BEGIN
+    SELECT RAISE(ABORT, 'gold evidence: an array of {kind, found, url, quote}; found needs a quote, not found has none');
+END;
 
 CREATE TABLE diagnoses (
     diagnosis_id     INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id       TEXT NOT NULL REFERENCES companies(company_id),
     prompt_version   TEXT NOT NULL,
     attempted        INTEGER NOT NULL CHECK (attempted IN (0, 1)),
-    gap_type         TEXT CHECK (gap_type IN ('G1','G2','G3','G4','G5')),
+    gap_type         TEXT CHECK (gap_type IN ('G1','G2','G3','G4','G5','G6')),
     confidence       REAL CHECK (confidence BETWEEN 0 AND 1),
     claims           TEXT NOT NULL DEFAULT '[]'
                          CHECK (json_valid(claims) AND json_type(claims) = 'array'),
@@ -237,7 +294,7 @@ CREATE TABLE diagnoses (
 
 -- Claims (protocol/GAPS.md v1.1): each is an object with a boolean found and a
 -- non-empty url. found = true needs a non-empty text quote; found = false (an
--- absence) must have a null or missing quote.
+-- absence) must have a null or missing quote. Unchanged from 0001.
 CREATE TRIGGER diagnoses_claim_quote_insert
 BEFORE INSERT ON diagnoses
 WHEN EXISTS (

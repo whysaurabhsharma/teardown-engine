@@ -5,6 +5,10 @@
 In order:
 1. Contacts guard. A prompt (or schema) containing any value from the contacts
    table is refused with ContactInPrompt: nothing is sent, nothing recorded.
+   Held-out guard. A prompt (or schema) containing a quote from a held_out
+   gold row (normalised, 20 characters or more) is refused with
+   HeldOutInPrompt, unless the call is about that row's own company, whose
+   pages hold the quote anyway (engine/judge/gold.py held_out_values).
 2. Cache. If llm_calls already holds a valid output for
    (stage, company_id, prompt_version), it is returned; no provider is called
    and nothing is written (a re-run changes nothing).
@@ -32,6 +36,7 @@ from engine.llm import api_providers, claude_headless
 from engine.llm.base import (
     CachedOutputInvalid,
     ContactInPrompt,
+    HeldOutInPrompt,
     LlmError,
     Provider,
     ProviderResult,
@@ -105,6 +110,20 @@ def check_no_contacts(conn: sqlite3.Connection, *texts: str) -> None:
                     "prompt refused: it contains a value from the contacts table; "
                     "use a placeholder and let the renderer fill it locally"
                 )
+
+
+# --- held-out guard --------------------------------------------------------------
+
+def check_no_held_out(conn: sqlite3.Connection, company_id: str | None, *texts: str) -> None:
+    """Raise HeldOutInPrompt if any text holds a held_out gold row's quote from a
+    company other than company_id. The message never names the quote."""
+    from engine.judge.gold import held_out_quote_in
+
+    if held_out_quote_in(conn, company_id, *texts):
+        raise HeldOutInPrompt(
+            "prompt refused: it contains a quote from a held_out gold row; held-out "
+            "diagnoses never enter a prompt (protocol/GAPS.md, Gold set)"
+        )
 
 
 # --- schema ----------------------------------------------------------------------
@@ -191,7 +210,7 @@ def call(
 ) -> Any:
     """Return a schema-valid output for (stage, company_id, prompt_version).
 
-    Raises ContactInPrompt, CachedOutputInvalid, SchemaInvalid,
+    Raises ContactInPrompt, HeldOutInPrompt, CachedOutputInvalid, SchemaInvalid,
     AllProvidersUnavailable, ProviderError or BudgetExceeded.
     """
     r = get_route(route)
@@ -200,7 +219,9 @@ def call(
     own = conn is None
     conn = conn or db.connect()
     try:
-        check_no_contacts(conn, prompt, json.dumps(schema, ensure_ascii=False))
+        schema_text = json.dumps(schema, ensure_ascii=False)
+        check_no_contacts(conn, prompt, schema_text)
+        check_no_held_out(conn, company_id, prompt, schema_text)
 
         hit, output = cached_output(conn, stage, company_id, prompt_version)
         if hit:
@@ -251,6 +272,7 @@ def _attempt(
     for attempt in (1, 2):
         if attempt == 2:
             check_no_contacts(conn, text)
+            check_no_held_out(conn, company_id, text)
         budget.charge_model_call()
         result = provider(text, schema, target.model)
         if result.output is None:

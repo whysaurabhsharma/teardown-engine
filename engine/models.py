@@ -28,7 +28,9 @@ Probability = Annotated[float, Field(ge=0, le=1)]
 Outcome = Literal["ok", "not_found", "blocked", "dead", "robots_denied"]
 Split = Literal["teach", "held_out"]
 QuoteSource = Literal["text", "removed_text", "structure", "not_found", "absent"]  # 0011
-GapId = Literal["G1", "G2", "G3", "G4", "G5"]  # protocol/GAPS.md
+GapId = Literal["G1", "G2", "G3", "G4", "G5", "G6"]  # protocol/GAPS.md v1.2 (G6 provisional; 0013)
+# abstain_reason starts with one of these (protocol/GAPS.md v1.2, "Abstain by default")
+ABSTAIN_CODES = ("no_evidence:", "contradicted:", "thin:")
 
 
 class Row(BaseModel):
@@ -183,6 +185,41 @@ class Contact(Row):
     linkedin_url: str | None = None  # typed by a person, never fetched (0012)
 
 
+def abstain_reason_problem(reason: str | None) -> str | None:
+    """None when reason starts with an ABSTAIN_CODES code followed by text; else why not."""
+    if reason is None or not reason.strip():
+        return "an abstention needs an abstain_reason"
+    code = next((c for c in ABSTAIN_CODES if reason.startswith(c)), None)
+    if code is None:
+        return f"abstain_reason must start with one of {', '.join(ABSTAIN_CODES)}"
+    if not reason[len(code):].strip():
+        return f"abstain_reason gives no reason after {code!r}"
+    return None
+
+
+class GoldEvidence(BaseModel):
+    """One piece of gold evidence (protocol/GAPS.md, "Evidence rules"; 0013).
+
+    found=True: a verbatim quote from the artifact of that kind, and its url.
+    found=False: the artifact's capture outcome is not_found; quote is None.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: NonBlank
+    found: bool
+    url: NonBlank
+    quote: Quote | None = None
+
+    @model_validator(mode="after")
+    def _quote_matches_found(self) -> GoldEvidence:
+        if self.found and self.quote is None:
+            raise ValueError("found evidence needs a verbatim quote")
+        if not self.found and self.quote is not None:
+            raise ValueError("not-found evidence has quote null")
+        return self
+
+
 class Gold(Row):
     TABLE: ClassVar[str] = "gold"
     JSON_FIELDS: ClassVar[frozenset[str]] = frozenset({"evidence"})
@@ -191,14 +228,22 @@ class Gold(Row):
     company_id: NonBlank
     gap_type: GapId | None = None
     abstain: bool
-    evidence: list[Any] | dict[str, Any] = Field(default_factory=list)
+    abstain_reason: str | None = None  # required when abstain; ABSTAIN_CODES (0013)
+    evidence: list[GoldEvidence] = Field(default_factory=list)
     split: Split
     gaps_version: NonBlank
+    notes: str | None = None  # typed by a person with the diagnosis (0013)
 
     @model_validator(mode="after")
     def _gap_or_abstain(self) -> Gold:
         if self.abstain == (self.gap_type is not None):
             raise ValueError("a gold row has a gap_type or abstains, not both or neither")
+        if self.abstain:
+            problem = abstain_reason_problem(self.abstain_reason)
+            if problem:
+                raise ValueError(problem)
+        elif self.abstain_reason is not None:
+            raise ValueError("a gold row that names a gap has no abstain_reason")
         return self
 
 
