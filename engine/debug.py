@@ -11,8 +11,8 @@ without touching data/:
                            when it has been extracted
 
 Contacts rows are never read into the output. Every value from that company's
-contacts rows (name, title, email, source_url, and each name part of 3+ chars)
-is replaced with "[redacted]" wherever it appears, case-insensitive and
+contacts rows (name, title, email, source_url, linkedin_url, and each name part
+of 3+ chars) is replaced with "[redacted]" wherever it appears, case-insensitive and
 whole-word, using the same matching as the model gateway's contacts guard.
 Touches lose hubspot_deal_id (it links to a person in HubSpot).
 

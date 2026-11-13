@@ -178,6 +178,9 @@ class Contact(Row):
     email: str | None = None
     email_confidence: Probability | None = None
     channel: str | None = None
+    confidence: Literal["high", "medium", "low"] | None = None  # address confidence (0012)
+    email_source: Literal["hunter", "apollo", "pattern", "public", "manual"] | None = None  # (0012)
+    linkedin_url: str | None = None  # typed by a person, never fetched (0012)
 
 
 class Gold(Row):

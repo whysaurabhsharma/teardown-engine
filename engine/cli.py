@@ -1442,6 +1442,305 @@ def show_cmd(company_id: str, n_lines: int, cache_dir: Path | None,
         click.echo(line)
 
 
+# --- people (Steps 40-43) ---------------------------------------------------------
+
+
+def _stdout_is_terminal() -> bool:
+    """True when stdout is an interactive terminal (not a file or a pipe)."""
+    isatty = getattr(sys.stdout, "isatty", None)
+    return bool(isatty and isatty())
+
+
+@main.group("people")
+def people_group() -> None:
+    """The recipient: rule, where to look, record, drop, list and check (Steps 40-43).
+
+    The person finds the recipient by hand; these commands only show where to
+    look and check and store what is typed. No names or addresses are printed
+    unless asked, and never to a file.
+    """
+
+
+def _people_conn(db_file: Path | None):
+    from engine import db as dbmod
+
+    try:
+        return dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+
+
+@people_group.command("suggest")
+@click.argument("company_id")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def people_suggest(company_id: str, cache_dir: Path | None, db_file: Path | None) -> None:
+    """Print COMPANY_ID's recipient rule and where to look, in order. Read-only, no fetching."""
+    from engine.guard.cache import Cache
+    from engine.people.contacts import PeopleError
+    from engine.people.suggest import suggest_lines
+
+    conn = _people_conn(db_file)
+    try:
+        out = suggest_lines(conn, Cache(cache_dir), company_id)
+    except PeopleError as e:
+        _fail(str(e))
+        return
+    finally:
+        conn.close()
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:  # a Windows pipe is cp1252; job text may not be
+        reconfigure(errors="backslashreplace")
+    for line in out:
+        click.echo(line)
+
+
+@people_group.command("add")
+@click.argument("company_id")
+@click.option("--name", required=True, help="The recipient's name, as found.")
+@click.option("--title", required=True, help="Their title. Never a recruiter, talent or HR.")
+@click.option("--source-url", required=True, help="The URL where you found them.")
+@click.option("--email", default=None, help="Their address, if one was found.")
+@click.option("--confidence", type=click.Choice(["high", "medium", "low"]), default=None,
+              help="The address's confidence (required with --email).")
+@click.option("--email-source", type=click.Choice(["hunter", "apollo", "pattern", "public",
+                                                   "manual"]), default=None,
+              help="Where the address came from (required with --email).")
+@click.option("--linkedin-url", default=None, help="Their LinkedIn profile URL (typed by you).")
+@click.option("--verified", is_flag=True,
+              help="A pattern address was checked with Hunter's verifier (allows medium/high).")
+@click.option("--force", is_flag=True,
+              help="Store an address whose domain is not the company's.")
+@click.option("--replace", is_flag=True, help="Overwrite the company's recorded recipient.")
+@click.option("--dry-run", is_flag=True, help="Check and print; write nothing.")
+@_db_option
+def people_add(company_id: str, name: str, title: str, source_url: str, email: str | None,
+               confidence: str | None, email_source: str | None, linkedin_url: str | None,
+               verified: bool, force: bool, replace: bool, dry_run: bool,
+               db_file: Path | None) -> None:
+    """Record COMPANY_ID's recipient (one contacts row) and set its channel (Step 43).
+
+    email at high or medium confidence; otherwise linkedin with --linkedin-url;
+    with neither, refused (use `te people drop`). The name and address are not
+    echoed.
+    """
+    from engine.people import contacts as P
+
+    conn = _people_conn(db_file)
+    try:
+        try:
+            plan = P.plan_add(conn, company_id, name=name, title=title, source_url=source_url,
+                              email=email, confidence=confidence, email_source=email_source,
+                              linkedin_url=linkedin_url, verified=verified, force=force)
+        except P.PeopleError as e:
+            _fail(f"{company_id}: {e}")
+            return
+        for w in plan.warnings:
+            click.echo(f"warning: {w}")
+        row = plan.row
+        what = (f"title {row.title}; channel {row.channel}; confidence {row.confidence or '-'}; "
+                f"email source {row.email_source or '-'}; linkedin "
+                f"{'yes' if row.linkedin_url else 'no'}")
+        if dry_run:
+            verb = ("unchanged" if plan.unchanged else
+                    "would replace" if plan.existing_id is not None else "would add")
+            click.echo(f"dry run: {company_id}: {verb}: {what}")
+            if plan.existing_id is not None and not plan.unchanged and not replace:
+                click.echo("  (a recipient is recorded with different values; --replace "
+                           "would be needed)")
+            return
+        try:
+            done = P.write(conn, plan, replace=replace)
+        except P.PeopleError as e:
+            _fail(str(e))
+            return
+    finally:
+        conn.close()
+    click.echo(f"{company_id}: {done}: {what}")
+
+
+@people_group.command("drop")
+@click.argument("company_id")
+@click.option("--dry-run", is_flag=True, help="Say what would happen; write nothing.")
+@_db_option
+def people_drop(company_id: str, dry_run: bool, db_file: Path | None) -> None:
+    """Drop COMPANY_ID as no_recipient: nobody to name, or no way to reach them (Step 43)."""
+    from engine.people import contacts as P
+
+    conn = _people_conn(db_file)
+    try:
+        try:
+            changed = P.drop(conn, company_id, dry_run=dry_run)
+        except P.PeopleError as e:
+            _fail(str(e))
+            return
+        has_row = P.recipient(conn, company_id) is not None
+    finally:
+        conn.close()
+    if not changed:
+        click.echo(f"{company_id} was already dropped {P.DROP_REASON}")
+        return
+    click.echo(f"{'dry run: would drop' if dry_run else 'dropped'} {company_id} "
+               f"{P.DROP_REASON} (stage {P.DROP_STAGE})")
+    if has_row:
+        click.echo("note: a recipient row is still recorded for it; it is never used for a "
+                   "dropped company")
+
+
+def _people_rows(conn, pilot: bool, company_id: str | None, limit: int | None):
+    from engine.people import contacts as P
+
+    try:
+        return P.overview(conn, P.select(conn, pilot=pilot, company_id=company_id, limit=limit))
+    except P.PeopleError as e:
+        _fail(str(e))
+
+
+@people_group.command("list")
+@click.option("--pilot", is_flag=True, help="Only pilot companies (pilot = 1), dropped included.")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="At most this many companies.")
+@click.option("--show-contacts", is_flag=True,
+              help="Also print names and addresses: to a terminal only, never to a file.")
+@click.option("--dry-run", is_flag=True, help="Read-only anyway; accepted for convention.")
+@_db_option
+def people_list(pilot: bool, company_id: str | None, limit: int | None, show_contacts: bool,
+                dry_run: bool, db_file: Path | None) -> None:
+    """List each company's rule, recipient title, channel and confidence.
+
+    Names and addresses only with --show-contacts, and only when stdout is a
+    terminal.
+    """
+    if show_contacts and not _stdout_is_terminal():
+        _fail("refused: --show-contacts prints personal data and only to a terminal; "
+              "stdout is redirected to a file or a pipe")
+        return
+    conn = _people_conn(db_file)
+    try:
+        rows = _people_rows(conn, pilot, company_id, limit)
+    finally:
+        conn.close()
+    click.echo(f"{'company':<30} {'headcount':>9}  {'rule':<10} {'recipient title':<30} "
+               f"{'channel':<8} {'conf':<6} source")
+    for o in rows:
+        c = o.company
+        rule = c.rule.band if c.status != "dropped" else f"dropped:{c.drop_reason}"
+        hc = str(c.headcount) if c.headcount is not None else "?"
+        click.echo(f"{c.company_id[:30]:<30} {hc:>9}  {rule:<10} {(o.title or '-')[:30]:<30} "
+                   f"{o.channel or '-':<8} {o.confidence or '-':<6} {o.email_source or '-'}")
+        if show_contacts and (o.name or o.email):
+            click.echo(f"{'':<30}   name {o.name or '-'}; email {o.email or '-'}")
+    click.echo(f"companies {len(rows)}; with a recipient "
+               f"{sum(1 for o in rows if o.title is not None or o.has_name)}")
+
+
+@people_group.command("check")
+@click.option("--pilot", is_flag=True, help="The pilot twelve (Gate 3.3).")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="At most this many companies.")
+@click.option("--dry-run", is_flag=True, help="Read-only anyway; accepted for convention.")
+@_db_option
+def people_check(pilot: bool, company_id: str | None, limit: int | None, dry_run: bool,
+                 db_file: Path | None) -> None:
+    """Gate 3.3: each company has a named recipient with a source URL and either an
+    address at medium confidence or better, or a LinkedIn channel. Exit 1 if any fails."""
+    from engine.people import contacts as P
+
+    conn = _people_conn(db_file)
+    try:
+        rows = _people_rows(conn, pilot, company_id, limit)
+    finally:
+        conn.close()
+    failed = 0
+    for o in rows:
+        problem = P.gate_problem(o)
+        failed += problem is not None
+        detail = problem or (f"{o.channel}" + (f" ({o.confidence})" if o.channel == "email"
+                                                else ""))
+        click.echo(f"{'FAIL' if problem else 'ok':<4} {o.company.company_id:<30} {detail}")
+    click.echo(f"companies {len(rows)}: ok {len(rows) - failed}, fail {failed}")
+    short = pilot and company_id is None and limit is None and len(rows) < P.GATE_SIZE
+    if short:
+        click.echo(f"FAIL the pilot has {len(rows)} companies, not {P.GATE_SIZE}")
+    sys.exit(1 if failed or short or not rows else 0)
+
+
+@people_group.command("pattern")
+@click.argument("company_id")
+@click.option("--first", default=None, help="A first name to build the address for.")
+@click.option("--last", default=None, help="A last name to build the address for.")
+@click.option("--verify", is_flag=True,
+              help="Check the built address with Hunter's verifier (needs HUNTER_API_KEY).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def people_pattern(company_id: str, first: str | None, last: str | None, verify: bool,
+                   cache_dir: Path | None, db_file: Path | None) -> None:
+    """List public addresses at COMPANY_ID's domain in its captured pages and propose a pattern.
+
+    Stores nothing. An address built from the pattern is `low` unless Hunter's
+    verifier says valid; mail servers are never contacted.
+    """
+    from engine.guard import email_finder as F
+    from engine.guard.cache import Cache
+    from engine.people import pattern as PT
+    from engine.people.contacts import PeopleError, company
+
+    conn = _people_conn(db_file)
+    try:
+        try:
+            c = company(conn, company_id)
+            found, missing = PT.public_addresses(conn, Cache(cache_dir), company_id)
+        except PeopleError as e:
+            _fail(str(e))
+            return
+    finally:
+        conn.close()
+    click.echo(f"{company_id}  domain {c.domain or '-'}")
+    if missing:
+        click.echo(f"ok artifacts not yet extracted (not read): {missing}")
+    if not found:
+        click.echo("no address at this domain in the captured pages")
+    for a in found:
+        label = "role" if a.role else (a.shape or "unreadable")
+        click.echo(f"  {a.address:<40} {label:<16} {a.kind} {a.url}")
+    prop = PT.propose(found)
+    click.echo(f"pattern: {prop.pattern or 'none'} ({prop.note})")
+    if first is None and last is None:
+        if verify:
+            _fail("--verify needs --first and --last")
+        return
+    needs_last = prop.pattern is not None and ("{last}" in prop.pattern or "{l}" in prop.pattern)
+    if prop.pattern is None or not first or (needs_last and not last) or not c.domain:
+        _fail("cannot build an address: no pattern, or the name parts it needs are missing")
+        return
+    try:
+        addr = PT.render(prop.pattern, first, last or "", c.domain)
+    except ValueError as e:
+        _fail(str(e))
+        return
+    level = PT.INFERRED_CONFIDENCE
+    flag = ""
+    if verify:
+        try:
+            v = F.hunter_verify(addr)
+        except (F.NotConfigured, F.FinderError) as e:
+            click.echo(f"verifier: {e}; the address stays {level}")
+        else:
+            if v.confidence is None:
+                _fail(f"verifier: Hunter says {v.status}; do not use this address")
+                return
+            click.echo(f"verifier: Hunter says {v.status}")
+            if v.confidence != level:
+                level, flag = v.confidence, " --verified"
+    click.echo(f"inferred address: {addr} (confidence {level})")
+    click.echo(f"to record it: te people add {company_id} ... --email <the address> "
+               f"--confidence {level} --email-source pattern{flag}")
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

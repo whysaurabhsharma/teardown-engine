@@ -48,7 +48,8 @@ PROVIDERS: dict[str, Provider] = {
     "cloudflare": api_providers.cloudflare,
 }
 
-CONTACT_FIELDS = ("name", "title", "email", "source_url")  # channel is an enum, not personal
+# channel, confidence and email_source are enums, not personal; linkedin_url (0012) is.
+CONTACT_FIELDS = ("name", "title", "email", "source_url", "linkedin_url")
 MIN_CONTACT_LEN = 3
 MAX_ERROR_IN_RETRY = 500
 

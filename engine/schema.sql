@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 11), for reading.
+-- engine/schema.sql: the current full schema (version 12), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -192,8 +192,12 @@ CREATE TABLE contacts (
     email            TEXT,
     email_confidence REAL CHECK (email_confidence BETWEEN 0 AND 1),
     channel          TEXT
-);
+, confidence TEXT
+    CHECK (confidence IS NULL OR confidence IN ('high', 'medium', 'low')), email_source TEXT
+    CHECK (email_source IS NULL OR email_source IN ('hunter', 'apollo', 'pattern', 'public', 'manual')), linkedin_url TEXT);
 CREATE INDEX contacts_company ON contacts(company_id);
+-- contacts.confidence, email_source and linkedin_url were added by
+-- 0012_contact_people (the People step, engine/people/).
 
 CREATE TABLE gold (
     gold_id      INTEGER PRIMARY KEY AUTOINCREMENT,

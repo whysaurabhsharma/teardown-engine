@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phase 3: Steps 32-38 done (capture, ex-1.1 text, te show, fx-1.0 facts incl. DNS, patterns.yaml). protocol-v1 tagged. Gates 1.3 (domain check), 2.1-2.3, 3.1-3.2 need live runs; Step 39 hand check is the user. Next: Steps 40-43.
+Phase 3 code done: Steps 32-38 and 40-43 tooling (te people; migration 0012). Live gates 1.3, 2.1-2.3, 3.1-3.3 open; Step 39 hand check and finding recipients are the user. Next: Phase 4, Steps 44-45 tooling.
