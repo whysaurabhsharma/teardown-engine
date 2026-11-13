@@ -2116,6 +2116,154 @@ def judge_faithfulness(company_id: str | None, pilot: bool, limit: int | None,
     click.echo(f"faithfulness {version}: diagnoses checked {n}")
 
 
+@judge_cmd.command("verify")
+@_judge_options
+@click.option("--dry-run", is_flag=True,
+              help="Print each diagnosis's claims, writer and prompt sizes; no call, no write.")
+def judge_verify(company_id: str | None, pilot: bool, limit: int | None, no_examples: bool,
+                 cache_dir: Path | None, db_file: Path | None, dry_run: bool) -> None:
+    """Check each surviving claim with a model of another family (Step 49).
+
+    One call per claim on the verifier route, never the family that wrote the
+    diagnosis, keyed on (verify, company_id, v-1.0:<diagnosis key>:<claim>): a
+    re-run makes no call. Two not_supported turn the diagnosis into an abstention
+    (dropped as no_gap); one is recorded so the quality gate fails the teardown.
+    Exits 1 on any refused or error.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import BudgetExceeded
+    from engine.guard.cache import Cache
+    from engine.judge import judge as J
+    from engine.judge import verify as V
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    version = J.version_for(no_examples)
+    cache = Cache(cache_dir)
+    counts: dict[str, int] = {}
+    calls = bad = 0
+    try:
+        if company_id is not None and J.stored(conn, company_id, version) is None:
+            _fail(f"{company_id}: no diagnosis at {version}")
+            return
+        ids = V.select(conn, prompt_version=version, company_id=company_id, pilot=pilot,
+                       limit=limit)
+        try:
+            for cid in ids:
+                r = V.verify_company(conn, cache, cid, prompt_version=version, dry_run=dry_run)
+                counts[r.outcome] = counts.get(r.outcome, 0) + 1
+                calls += r.calls
+                line = f"{cid}: {r.outcome}: {r.detail[:200]}"
+                if r.prompts:
+                    line += f"; prompts {', '.join(str(n) for n in r.prompts)} chars"
+                if r.masked:
+                    line += f"; {r.masked} contact values masked"
+                if r.status:
+                    line += f"; {r.status}"
+                click.echo(("dry run: " if dry_run else "") + line)
+                if r.verdict is not None and r.outcome != "existing":
+                    for c in r.verdict.claims:
+                        click.echo(f"  claim {c.index} [{c.artifact_kind}]: {c.verdict} "
+                                   f"({c.provider}, {c.family})")
+                if r.outcome in ("refused", "error"):
+                    bad += 1
+        except BudgetExceeded as e:
+            click.echo(f"stopped: {e}")
+            bad += 1
+        except V.VerifyError as e:
+            _fail(f"refused: {e}")
+            return
+    finally:
+        conn.close()
+    summary = ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+    click.echo(f"verify {V.VERIFY_VERSION} on {version}: diagnoses {sum(counts.values())}: "
+               f"{summary or 'none'}; provider calls {calls}")
+    sys.exit(1 if bad else 0)
+
+
+@judge_cmd.command("score")
+@click.option("--reveal-held-out", is_flag=True,
+              help="Also print each held-out row's human and judge call: to a terminal only.")
+@click.option("--dry-run", is_flag=True,
+              help="Score the diagnoses already stored; no call, nothing recorded.")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def judge_score(reveal_held_out: bool, dry_run: bool, cache_dir: Path | None,
+                db_file: Path | None) -> None:
+    """Score the judge on the held-out gold rows (Step 50, Gate 4.2).
+
+    Runs the judge (or reuses its stored diagnoses and cached calls) on all
+    eighteen gold companies, then reports for the held-out rows only: same call
+    as the human (target 10 of 13), gaps named where the human abstained (1 at
+    most), and claims failing faithfulness that would reach a draft (zero).
+    Records the round. Exits 0 only when every target is met. Always scores all
+    the gold companies, so --company, --pilot and --limit do not apply.
+    """
+    from engine import db as dbmod
+    from engine.guard.budget import BudgetExceeded
+    from engine.guard.cache import Cache
+    from engine.judge import score as S
+
+    if reveal_held_out:
+        if not _stdout_is_terminal():
+            _fail("refused: --reveal-held-out prints held-out calls and only to a terminal; "
+                  "stdout is redirected to a file or a pipe")
+            return
+        click.echo("WARNING: held-out calls below. Never paste them into a prompt, a skill, "
+                   "a fixture or a chat; they exist only to score the judge.")
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    try:
+        try:
+            score = S.run(conn, Cache(cache_dir), dry_run=dry_run)
+        except S.ScoreError as e:
+            _fail(f"refused: {e}")
+            return
+        except BudgetExceeded as e:
+            _fail(f"stopped: {e}")
+            return
+        for r in score.rows:
+            if not r.judged:
+                what = f"not judged ({r.note})"
+            else:
+                what = "agree" if r.same else "disagree"
+            if reveal_held_out and r.judged:
+                human = r.human_gap or "abstain"
+                judge = r.judge_gap or "abstain"
+                what += f": human {human}, judge {judge}"
+            if r.faithfulness_failures:
+                what += f"; {r.faithfulness_failures} claims fail faithfulness"
+            click.echo(f"{r.company_id}: {what}")
+        for t in score.teach_problems:
+            click.echo(f"warning: teach company not judged: {t}")
+        for ok, text in score.checks():
+            click.echo(f"{'ok' if ok else 'FAIL':<4} {text}")
+        n = S.round_number(conn, score.prompt_version)
+        warning = S.round_warning(conn, score.prompt_version)
+        if warning:
+            click.echo(f"warning: {warning}")
+        if dry_run:
+            click.echo(f"dry run {score.prompt_version}: round {n}; nothing recorded")
+        else:
+            wrote = S.record(conn, score)
+            click.echo(f"judge {score.prompt_version}: round {n} of at most {S.MAX_ROUNDS}; "
+                       f"judged now {score.judged_now}; provider calls {score.calls}; "
+                       + ("recorded" if wrote else "same counts as last recorded; not recorded"
+                          " again"))
+    finally:
+        conn.close()
+    click.echo(f"score: {score.same_call} of {score.held_out} held-out rows the same call; "
+               "Gate 4.2 targets " + ("met" if score.passed else "not met"))
+    sys.exit(0 if score.passed else 1)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

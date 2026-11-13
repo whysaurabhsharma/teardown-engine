@@ -55,7 +55,7 @@ def test_every_table_has_a_model(conn: sqlite3.Connection) -> None:
         )
     }
     assert tables == {m.TABLE for m in ALL_MODELS}
-    assert len(tables) == 12
+    assert len(tables) == 13
     for model in ALL_MODELS:
         cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({model.TABLE})")}
         assert set(model.model_fields) == cols, model.TABLE

@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 13), for reading.
+-- engine/schema.sql: the current full schema (version 14), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -384,3 +384,18 @@ CREATE TABLE suppressions (
     reason          TEXT NOT NULL,
     added_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
+
+-- judge_scores was added by 0014_judge_scores: one row per `te judge score`
+-- result (Step 50); each prompt_version scored is one round, at most three.
+CREATE TABLE judge_scores (
+    score_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt_version        TEXT NOT NULL,
+    held_out              INTEGER NOT NULL CHECK (held_out >= 0),
+    same_call             INTEGER NOT NULL CHECK (same_call >= 0),
+    false_gap             INTEGER NOT NULL CHECK (false_gap >= 0),
+    faithfulness_failures INTEGER NOT NULL CHECK (faithfulness_failures >= 0),
+    not_judged            INTEGER NOT NULL CHECK (not_judged >= 0),
+    passed                INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX judge_scores_version ON judge_scores(prompt_version);

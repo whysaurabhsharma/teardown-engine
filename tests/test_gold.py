@@ -225,9 +225,13 @@ def test_database_rejects_malformed_evidence(conn, evidence) -> None:
 def test_migration_0013_preserves_rows(tmp_path: Path) -> None:
     old = tmp_path / "migs12"
     old.mkdir()
+    upto13 = tmp_path / "migs13"  # later migrations are tested on their own
+    upto13.mkdir()
     for f in db.MIGRATIONS_DIR.glob("*.sql"):
         if int(f.name[:4]) <= 12:
             shutil.copy(f, old / f.name)
+        if int(f.name[:4]) <= 13:
+            shutil.copy(f, upto13 / f.name)
     path, _ = db.init_db(tmp_path / "data" / "engine.db", old)
     conn = db.connect(path)
     assert db.user_version(conn) == 12
@@ -250,7 +254,7 @@ def test_migration_0013_preserves_rows(tmp_path: Path) -> None:
                      "'no_evidence: x', NULL, NULL, '2026-11-12T00:00:01Z')", (claims,))
     conn.close()
 
-    applied, backup = db.migrate(path)
+    applied, backup = db.migrate(path, upto13)
     assert [m.version for m in applied] == [13] and backup is not None
 
     conn = db.connect(path)
@@ -280,7 +284,7 @@ def test_migration_0013_preserves_rows(tmp_path: Path) -> None:
                      "VALUES ('zentrico-io', 'G6', 0, 'teach', 'v2.0')")
     assert conn.execute("SELECT gold_id FROM gold WHERE gaps_version = 'v2.0'").fetchone()[0] == 10
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-    fresh_path, _ = db.init_db(tmp_path / "fresh.db")
+    fresh_path, _ = db.init_db(tmp_path / "fresh.db", upto13)
     fresh = db.connect(fresh_path)
     q = "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"
     assert [tuple(r) for r in conn.execute(q)] == [tuple(r) for r in fresh.execute(q)]

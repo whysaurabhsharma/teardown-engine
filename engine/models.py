@@ -389,6 +389,23 @@ class LlmCall(Row):
     cost_usd: Annotated[float, Field(ge=0)] | None = None
 
 
+class JudgeScore(Row):
+    """One `te judge score` result on the held-out gold rows (Step 50; 0014).
+    Counts only: never a quote, a gap or a company id."""
+
+    TABLE: ClassVar[str] = "judge_scores"
+
+    score_id: int | None = None
+    prompt_version: NonBlank
+    held_out: Annotated[int, Field(ge=0)]
+    same_call: Annotated[int, Field(ge=0)]
+    false_gap: Annotated[int, Field(ge=0)]
+    faithfulness_failures: Annotated[int, Field(ge=0)]
+    not_judged: Annotated[int, Field(ge=0)]
+    passed: bool
+    created_at: str | None = None
+
+
 class Suppression(Row):
     TABLE: ClassVar[str] = "suppressions"
 
@@ -399,5 +416,5 @@ class Suppression(Row):
 
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
-    Diagnosis, Teardown, Touch, LlmCall, Suppression,
+    Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
 )
