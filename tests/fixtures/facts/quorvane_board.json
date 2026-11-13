@@ -1,0 +1,16 @@
+{
+  "jobs": [
+    {"title": "Founding Sales Development Representative", "location": {"name": "Pune, India"},
+     "absolute_url": "https://job-boards.greenhouse.example/quorvane/jobs/1",
+     "content": "&lt;p&gt;Build target lists.&lt;/p&gt;"},
+    {"title": "Senior Software Engineer", "location": {"name": "Pune, India"},
+     "absolute_url": "https://job-boards.greenhouse.example/quorvane/jobs/2",
+     "content": "&lt;p&gt;Build the matching engine.&lt;/p&gt;"},
+    {"title": "Customer Success Manager", "location": {"name": "Remote, India"},
+     "absolute_url": "https://job-boards.greenhouse.example/quorvane/jobs/3",
+     "content": "&lt;p&gt;Onboard clinics.&lt;/p&gt;"},
+    {"title": "Partnerships Lead", "location": {"name": "Pune, India"},
+     "absolute_url": "https://job-boards.greenhouse.example/quorvane/jobs/4",
+     "content": "&lt;p&gt;Grow channel partners.&lt;/p&gt;"}
+  ]
+}

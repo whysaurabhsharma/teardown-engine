@@ -1,0 +1,117 @@
+# engine/extract/lexicons.yaml: the fixed word lists E4 matches against
+# (docs/PLAN.md Step 37: jd_tools, jd_target_market, jd_scope_flags,
+# customer_regions). One place; a wrong entry is a one-line fix and a version
+# bump.
+#
+# Each entry: id (the fact value) and patterns, Python regular expressions
+# matched against the artifact's extracted text. Case-insensitive unless the
+# entry says case_sensitive: true (used where the word is also common English:
+# "Outreach", "Clay", "Excel", "US"). Write \b boundaries into the pattern.
+#
+# Changing anything here bumps version.
+
+version: lex-1.0
+
+# Tool names in a job post (jd_tools).
+jd_tools:
+  - {id: salesforce, patterns: ['\bSalesforce\b', '\bSFDC\b']}
+  - {id: hubspot, patterns: ['\bHub[Ss]pot\b']}
+  - {id: zoho_crm, patterns: ['\bZoho(?: CRM)?\b']}
+  - {id: pipedrive, patterns: ['\bPipedrive\b']}
+  - {id: freshsales, patterns: ['\bFreshsales\b', '\bFreshworks CRM\b']}
+  - {id: leadsquared, patterns: ['\bLead[Ss]quared\b']}
+  - {id: close, patterns: ['\bClose\.com\b', '\bClose CRM\b'], case_sensitive: true}
+  - {id: apollo, patterns: ['\bApollo(?:\.io)?\b'], case_sensitive: true}
+  - id: outreach
+    case_sensitive: true
+    # "outreach" is ordinary English; only the product name in a list or with .io
+    patterns: ['\bOutreach\.io\b', '(?:,|/|\(|\band|\bor|\blike|\bsuch as)\s*Outreach\b(?!\s+(?i:to|campaigns?|efforts?|strateg(?:y|ies)|programs?|motions?)\b)',
+               '\bOutreach(?=\s*(?:,|/|\)))']
+  - {id: salesloft, patterns: ['\bSales[Ll]oft\b']}
+  - {id: lemlist, patterns: ['\blemlist\b']}
+  - {id: instantly, patterns: ['\bInstantly(?:\.ai)?\b(?=\s*(?:,|/|\)|\.ai|\band\b|\bor\b))', '\bInstantly\.ai\b'], case_sensitive: true}
+  - {id: smartlead, patterns: ['\bSmartlead(?:\.ai)?\b']}
+  - {id: clay, patterns: ['\bClay(?:\.com)?\b(?!\s+(?i:pots?|tiles?|courts?)\b)'], case_sensitive: true}
+  - {id: zoominfo, patterns: ['\bZoom[Ii]nfo\b']}
+  - {id: lusha, patterns: ['\bLusha\b']}
+  - {id: sales_navigator, patterns: ['\b(?:LinkedIn )?Sales Nav(?:igator)?\b']}
+  - {id: gong, patterns: ['\bGong(?:\.io)?\b'], case_sensitive: true}
+  - {id: clari, patterns: ['\bClari\b'], case_sensitive: true}
+  - {id: zapier, patterns: ['\bZapier\b']}
+  - {id: make, patterns: ['\bMake\.com\b', '\bIntegromat\b']}
+  - {id: n8n, patterns: ['\bn8n\b']}
+  - {id: marketo, patterns: ['\bMarketo\b']}
+  - {id: pardot, patterns: ['\bPardot\b']}
+  - {id: mailchimp, patterns: ['\bMailchimp\b']}
+  - {id: intercom, patterns: ['\bIntercom\b'], case_sensitive: true}
+  - {id: calendly, patterns: ['\bCalendly\b']}
+  - {id: chili_piper, patterns: ['\bChili ?Piper\b']}
+  - {id: sixsense, patterns: ['\b6sense\b']}
+  - {id: clearbit, patterns: ['\bClearbit\b']}
+  - {id: hunter, patterns: ['\bHunter\.io\b']}
+  - {id: phantombuster, patterns: ['\bPhantom[Bb]uster\b']}
+  - {id: heyreach, patterns: ['\bHey[Rr]each\b']}
+  - {id: expandi, patterns: ['\bExpandi\b']}
+  - {id: waalaxy, patterns: ['\bWaalaxy\b']}
+  - {id: google_sheets, patterns: ['\bGoogle Sheets\b']}
+  - {id: excel, patterns: ['\b(?:MS |Microsoft )?Excel\b(?!\s+(?:at|in)\b)'], case_sensitive: true}
+  - {id: sql, patterns: ['\bSQL\b'], case_sensitive: true}
+  - {id: python, patterns: ['\bPython\b'], case_sensitive: true}
+  - {id: chatgpt, patterns: ['\bChatGPT\b', '\bOpenAI\b']}
+  - {id: google_analytics, patterns: ['\bGoogle Analytics\b', '\bGA4\b']}
+  - {id: mixpanel, patterns: ['\bMixpanel\b']}
+  - {id: amplitude, patterns: ['\bAmplitude\b'], case_sensitive: true}
+
+# Countries and regions (jd_target_market, customer_regions). Cities are not
+# regions and are not listed.
+regions:
+  - {id: india, patterns: ['\bIndia\b', '\bIndian\b', '\bBharat\b']}
+  - {id: united_states, patterns: ['\bUnited States\b', '\bUSA\b', '\bU\.S\.(?:A\.)?', '\bUS\b'], case_sensitive: true}
+  - {id: united_kingdom, patterns: ['\bUnited Kingdom\b', '\bUK\b', '\bBritain\b', '\bEngland\b'], case_sensitive: true}
+  - {id: canada, patterns: ['\bCanada\b']}
+  - {id: north_america, patterns: ['\bNorth America(?:n)?\b']}
+  - {id: latin_america, patterns: ['\bLatin America\b', '\bLATAM\b', '\bLatAm\b', '\bSouth America\b']}
+  - {id: europe, patterns: ['\bEurope(?:an)?\b', '\bEU\b'], case_sensitive: true}
+  - {id: dach, patterns: ['\bDACH\b'], case_sensitive: true}
+  - {id: nordics, patterns: ['\bNordics?\b', '\bScandinavia(?:n)?\b']}
+  - {id: germany, patterns: ['\bGermany\b']}
+  - {id: france, patterns: ['\bFrance\b']}
+  - {id: netherlands, patterns: ['\bNetherlands\b']}
+  - {id: emea, patterns: ['\bEMEA\b'], case_sensitive: true}
+  - {id: middle_east, patterns: ['\bMiddle East\b', '\bGCC\b', '\bMENA\b', '\bGulf\b'], case_sensitive: true}
+  - {id: uae, patterns: ['\bUAE\b', '\bUnited Arab Emirates\b', '\bDubai\b'], case_sensitive: true}
+  - {id: saudi_arabia, patterns: ['\bSaudi(?: Arabia)?\b', '\bKSA\b'], case_sensitive: true}
+  - {id: africa, patterns: ['\bAfrica(?:n)?\b']}
+  - {id: apac, patterns: ['\bAPAC\b', '\bAsia[- ]Pacific\b'], case_sensitive: true}
+  - {id: southeast_asia, patterns: ['\bSouth[- ]?East Asia(?:n)?\b', '\bSoutheast Asia(?:n)?\b', '\bSEA\b', '\bASEAN\b'], case_sensitive: true}
+  - {id: singapore, patterns: ['\bSingapore\b']}
+  - {id: indonesia, patterns: ['\bIndonesia\b']}
+  - {id: malaysia, patterns: ['\bMalaysia\b']}
+  - {id: philippines, patterns: ['\bPhilippines\b']}
+  - {id: vietnam, patterns: ['\bVietnam\b']}
+  - {id: thailand, patterns: ['\bThailand\b']}
+  - {id: japan, patterns: ['\bJapan\b']}
+  - {id: australia, patterns: ['\bAustralia(?:n)?\b', '\bANZ\b'], case_sensitive: true}
+  - {id: new_zealand, patterns: ['\bNew Zealand\b']}
+
+# Scope phrases in a job post (jd_scope_flags): what the hire is asked to do.
+scope_flags:
+  - id: list_building
+    patterns: ['\blist[- ]building\b',
+               '\b(?:build|builds|building|create|creating|own|owning)\b[^.\n]{0,40}?\b(?:lists?|TAM)\b',
+               '\bprospect(?:ing)? lists?\b', '\btarget account lists?\b']
+  - id: icp_definition
+    patterns: ['\b(?:define|defining|refine|refining|build|building|shape|shaping|own|owning)\b[^.\n]{0,30}?\b(?:ICP|ideal customer profiles?|buyer personas?)\b']
+  - id: sequencing
+    patterns: ['\bsequences?\b', '\bsequencing\b', '\bcadences?\b',
+               '\b(?:outbound|cold) (?:email )?campaigns?\b', '\bmulti[- ]channel outreach\b']
+  - id: crm_setup
+    patterns: ['\b(?:set ?up|setting up|implement|implementing|build|building|configure|configuring|own|owning|maintain|maintaining|manage|managing)\b[^.\n]{0,30}?\b(?:CRM|HubSpot|Salesforce|Zoho|Pipedrive)\b',
+               '\bCRM (?:setup|set-up|hygiene|administration|implementation)\b']
+  - id: closing
+    patterns: ['\bclos(?:e|es|ing) (?:deals|business|new business|contracts)\b', '\bfull[- ]cycle\b',
+               '\bend[- ]to[- ]end sales\b', '\bclosing\b']
+  - id: quota
+    patterns: ['\bquotas?\b', '\b(?:revenue|sales|pipeline|meeting) targets?\b']
+  - id: territory
+    patterns: ['\bterritor(?:y|ies)\b']

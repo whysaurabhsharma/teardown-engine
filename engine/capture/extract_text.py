@@ -14,8 +14,13 @@ What is kept, per artifact (only rows with outcome ok and a cached body):
 - structure a JSON document stored under cache/structure/<structure_sha256>:
             every link (text, raw href, absolute url, region), every button,
             every form with its fields and visible-field count, fields outside
-            any form, iframes, the page title, and the text of the regions
-            dropped from `text` (nav, footer).
+            any form, iframes, external scripts (src, url, region), the page
+            title, and the text of the regions dropped from `text` (nav,
+            footer).
+
+Versions: ex-1.0 first release. ex-1.1 adds `scripts` to the HTML structure
+(every <script src>, read by E4's stack_signals, Steps 37-38); the text is
+unchanged.
 
 HTML text rules
 ---------------
@@ -90,7 +95,7 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from engine.guard.cache import Cache, sha256_hex
 
-EXTRACTOR_VERSION = "ex-1.0"
+EXTRACTOR_VERSION = "ex-1.1"
 
 # Never text: not rendered, or not readable text.
 DROP_TAGS = frozenset({
@@ -354,6 +359,12 @@ def html_structure(tree: LexborHTMLParser, base: str) -> dict[str, Any]:
         iframes.append({"src": src, "url": _url(base, src), "title": _attr(fr, "title"),
                         "region": region})
 
+    scripts = []
+    for sc in tree.css("script[src]"):
+        region, _ = _ancestry(sc)
+        src = _attr(sc, "src")
+        scripts.append({"src": src, "url": _url(base, src), "region": region})
+
     return {
         "title": _collapse(title_node.text(deep=True)) if title_node is not None else None,
         "links": links,
@@ -362,6 +373,7 @@ def html_structure(tree: LexborHTMLParser, base: str) -> dict[str, Any]:
         "form_count": len(forms),
         "loose_fields": loose,
         "iframes": iframes,
+        "scripts": scripts,
     }
 
 

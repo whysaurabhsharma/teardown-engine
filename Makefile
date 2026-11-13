@@ -33,3 +33,4 @@ capture:
 
 extract:
 	uv run te extract text --pilot
+	uv run te extract facts --pilot

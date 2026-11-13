@@ -27,6 +27,7 @@ Probability = Annotated[float, Field(ge=0, le=1)]
 
 Outcome = Literal["ok", "not_found", "blocked", "dead", "robots_denied"]
 Split = Literal["teach", "held_out"]
+QuoteSource = Literal["text", "removed_text", "structure", "not_found", "absent"]  # 0011
 GapId = Literal["G1", "G2", "G3", "G4", "G5"]  # protocol/GAPS.md
 
 
@@ -160,6 +161,8 @@ class Fact(Row):
     quote: Quote
     char_start: Annotated[int, Field(ge=0)]
     extractor_version: NonBlank
+    found: bool = True  # False records an absence (0011)
+    quote_source: QuoteSource | None = None  # where the quote can be checked (0011)
 
 
 class Contact(Row):

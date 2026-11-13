@@ -436,7 +436,7 @@ def test_show_prints_bundle_text_and_dns(conn, cache, bundle, offline) -> None:
 
 def test_show_before_extraction_says_so(conn, cache, bundle, offline) -> None:
     out = "\n".join(show_lines(conn, CID, cache))
-    assert "extracted at ex-1.0: 0 of 4 ok" in out
+    assert f"extracted at {X.EXTRACTOR_VERSION}: 0 of 4 ok" in out
     assert "(not extracted at this version; run `te extract text`)" in out
     assert "  DMARC: policy none" in out  # DNS summary read from the raw JSON
 

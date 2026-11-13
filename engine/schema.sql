@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 10), for reading.
+-- engine/schema.sql: the current full schema (version 11), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -173,9 +173,14 @@ CREATE TABLE facts (
     artifact_kind     TEXT NOT NULL,
     quote             TEXT NOT NULL CHECK (length(trim(quote)) > 0),
     char_start        INTEGER NOT NULL CHECK (char_start >= 0),
-    extractor_version TEXT NOT NULL,
+    extractor_version TEXT NOT NULL, found INTEGER NOT NULL DEFAULT 1 CHECK (found IN (0, 1)), quote_source TEXT
+    CHECK (quote_source IS NULL OR quote_source IN (
+        'text', 'removed_text', 'structure', 'not_found', 'absent')),
     UNIQUE (company_id, fact, value, artifact_kind, char_start, extractor_version)
 );
+-- facts.found and facts.quote_source were added by 0011_fact_found; SQLite
+-- places columns added by ALTER TABLE before the table constraints.
+CREATE INDEX facts_company ON facts(company_id, fact);
 
 -- The only table holding personal data. Never placed in a prompt, log or test.
 CREATE TABLE contacts (

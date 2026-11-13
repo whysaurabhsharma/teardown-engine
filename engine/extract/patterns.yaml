@@ -1,0 +1,346 @@
+# engine/extract/patterns.yaml: how each tool shows itself in a captured bundle
+# (docs/PLAN.md Step 38). Read by engine/extract/stack.py (stack_signals),
+# dns.py (spf_senders "tools") and forms.py (has_booking_step).
+#
+# One entry per tool. A wrong pattern is a one-line fix here and a version bump
+# below; nothing else in the code names a tool's host.
+#
+# Keys (all optional except id, name, category):
+#   script_hosts   host, or host/path-prefix, of a <script src> or <iframe src>
+#                  on any captured page. Matches the host itself or any
+#                  subdomain of it ("hs-scripts.com" matches js.hs-scripts.com).
+#   link_hosts     host, or host/path-prefix, of a link, iframe or form action.
+#                  Keep these specific: a link to a vendor's homepage is not use.
+#   txt_prefixes   start of a TXT record on the company's root domain
+#                  (verification records), compared case-insensitively.
+#   spf_includes   domain in an SPF include: on the root (same subdomain rule).
+#   mx_hosts       an MX host of the root (same subdomain rule).
+#   cname_targets  the target of a CNAME on a checked sending subdomain.
+#   cookies        cookie names the tool sets. Documentation only: capture does
+#                  not keep response headers, so no fact reads these (ex-1.1).
+#
+# Categories: crm, marketing_automation, chat, scheduling, analytics,
+# sales_engagement, email_sending, email_hosting, visitor_identification,
+# ads, forms.
+#
+# A tool listed with no pattern has no public footprint we are confident of;
+# it is kept so the coverage is visible. Add a pattern only when you have seen
+# it on a real bundle.
+#
+# Changing anything here bumps version; `te extract facts` then rewrites the
+# facts of every company whose output changes.
+
+version: pat-1.0
+
+tools:
+  # -- email hosting and sending --------------------------------------------------
+  - id: google_workspace
+    name: Google Workspace
+    category: email_hosting
+    spf_includes: [_spf.google.com]
+    mx_hosts: [google.com, googlemail.com]
+  - id: microsoft_365
+    name: Microsoft 365
+    category: email_hosting
+    spf_includes: [spf.protection.outlook.com]
+    mx_hosts: [mail.protection.outlook.com]
+    txt_prefixes: ["MS=ms"]
+  - id: zoho_mail
+    name: Zoho Mail
+    category: email_hosting
+    spf_includes: [zoho.com, zoho.in, zoho.eu, zohomail.com, zohomail.in]
+    mx_hosts: [zoho.com, zoho.in, zoho.eu]
+    txt_prefixes: ["zoho-verification="]
+  - id: amazon_ses
+    name: Amazon SES
+    category: email_sending
+    spf_includes: [amazonses.com]
+    cname_targets: [amazonses.com]
+  - id: sendgrid
+    name: SendGrid
+    category: email_sending
+    spf_includes: [sendgrid.net]
+    mx_hosts: [sendgrid.net]
+    cname_targets: [sendgrid.net]
+  - id: mailgun
+    name: Mailgun
+    category: email_sending
+    spf_includes: [mailgun.org]
+    mx_hosts: [mailgun.org]
+    cname_targets: [mailgun.org]
+  - id: postmark
+    name: Postmark
+    category: email_sending
+    spf_includes: [mtasv.net]
+    cname_targets: [mtasv.net]
+  - id: mailchimp
+    name: Mailchimp
+    category: marketing_automation
+    spf_includes: [servers.mcsv.net]
+    cname_targets: [mcsv.net]
+    script_hosts: [chimpstatic.com]
+    link_hosts: [list-manage.com]
+  - id: mandrill
+    name: Mandrill
+    category: email_sending
+    spf_includes: [spf.mandrillapp.com]
+    cname_targets: [mandrillapp.com]
+    txt_prefixes: ["mandrill_verify."]
+  - id: brevo
+    name: Brevo (Sendinblue)
+    category: marketing_automation
+    spf_includes: [spf.sendinblue.com, spf.brevo.com]
+    txt_prefixes: ["sendinblue-code:", "brevo-code:"]
+    script_hosts: [sibautomation.com]
+    link_hosts: [sibforms.com]
+
+  # -- CRM ----------------------------------------------------------------------
+  - id: hubspot
+    name: HubSpot
+    category: crm
+    script_hosts: [hs-scripts.com, hsforms.net, hs-analytics.net, hscollectedforms.net,
+                   hs-banner.com, usemessages.com, hsadspixel.net, hsappstatic.net]
+    link_hosts: [meetings.hubspot.com, share.hsforms.com]
+    spf_includes: [hubspotemail.net]
+    cname_targets: [hubspotemail.net]
+    cookies: [hubspotutk, __hstc, __hssc, __hssrc]
+  - id: salesforce
+    name: Salesforce
+    category: crm
+    spf_includes: [_spf.salesforce.com]
+    link_hosts: [webto.salesforce.com]
+  - id: zoho_crm
+    name: Zoho CRM
+    category: crm
+    link_hosts: [crm.zoho.com, crm.zoho.in, crm.zoho.eu]
+  - id: pipedrive
+    name: Pipedrive
+    category: crm
+    script_hosts: [leadbooster-chat.pipedrive.com]
+    link_hosts: [webforms.pipedrive.com]
+  - id: freshworks
+    name: Freshworks (Freshsales, Freshchat)
+    category: crm
+    script_hosts: [fw-cdn.com, wchat.freshchat.com]
+
+  # -- marketing automation -------------------------------------------------------
+  - id: marketo
+    name: Marketo
+    category: marketing_automation
+    script_hosts: [munchkin.marketo.net, marketo.com]
+    spf_includes: [mktomail.com]
+    cname_targets: [mktoweb.com, mktomail.com]
+    cookies: [_mkto_trk]
+  - id: pardot
+    name: Pardot (Account Engagement)
+    category: marketing_automation
+    script_hosts: [pi.pardot.com, cdn.pardot.com]
+    link_hosts: [go.pardot.com]
+    spf_includes: [aspmx.pardot.com]
+    cname_targets: [go.pardot.com]
+    cookies: [visitor_id]
+  - id: webengage
+    name: WebEngage
+    category: marketing_automation
+    script_hosts: [widgets.webengage.com]
+  - id: moengage
+    name: MoEngage
+    category: marketing_automation
+    script_hosts: [cdn.moengage.com]
+
+  # -- chat -----------------------------------------------------------------------
+  - id: intercom
+    name: Intercom
+    category: chat
+    script_hosts: [widget.intercom.io, intercomcdn.com]
+    spf_includes: [intercom.io]
+    cookies: [intercom-id, intercom-session]
+  - id: drift
+    name: Drift
+    category: chat
+    script_hosts: [js.driftt.com, js.drift.com]
+    cookies: [driftt_aid]
+  - id: crisp
+    name: Crisp
+    category: chat
+    script_hosts: [client.crisp.chat]
+  - id: tawk
+    name: tawk.to
+    category: chat
+    script_hosts: [embed.tawk.to]
+  - id: zendesk_chat
+    name: Zendesk widget
+    category: chat
+    script_hosts: [static.zdassets.com]
+  - id: livechat
+    name: LiveChat
+    category: chat
+    script_hosts: [cdn.livechatinc.com]
+  - id: tidio
+    name: Tidio
+    category: chat
+    script_hosts: [code.tidio.co]
+  - id: zoho_salesiq
+    name: Zoho SalesIQ
+    category: chat
+    script_hosts: [salesiq.zoho.com, salesiq.zoho.in, salesiq.zohopublic.com,
+                   salesiq.zohopublic.in]
+
+  # -- scheduling -----------------------------------------------------------------
+  - id: calendly
+    name: Calendly
+    category: scheduling
+    script_hosts: [assets.calendly.com]
+    link_hosts: [calendly.com]
+  - id: chili_piper
+    name: Chili Piper
+    category: scheduling
+    script_hosts: [js.chilipiper.com]
+    link_hosts: [chilipiper.com]
+  - id: hubspot_meetings
+    name: HubSpot Meetings
+    category: scheduling
+    script_hosts: [static.hsappstatic.net/MeetingsEmbed]
+    link_hosts: [meetings.hubspot.com]
+  - id: cal_com
+    name: Cal.com
+    category: scheduling
+    script_hosts: [app.cal.com/embed]
+    link_hosts: [cal.com]
+  - id: savvycal
+    name: SavvyCal
+    category: scheduling
+    link_hosts: [savvycal.com]
+  - id: zcal
+    name: zcal
+    category: scheduling
+    link_hosts: [zcal.co]
+  - id: youcanbookme
+    name: YouCanBook.me
+    category: scheduling
+    link_hosts: [youcanbook.me]
+
+  # -- forms ----------------------------------------------------------------------
+  - id: typeform
+    name: Typeform
+    category: forms
+    script_hosts: [embed.typeform.com]
+    link_hosts: [typeform.com]
+  - id: tally
+    name: Tally
+    category: forms
+    script_hosts: [tally.so]
+    link_hosts: [tally.so]
+
+  # -- analytics ------------------------------------------------------------------
+  - id: google_tag_manager
+    name: Google Tag Manager
+    category: analytics
+    script_hosts: [www.googletagmanager.com/gtm.js]
+    link_hosts: [www.googletagmanager.com/ns.html]
+  - id: ga4
+    name: Google Analytics 4
+    category: analytics
+    script_hosts: [www.googletagmanager.com/gtag/js, google-analytics.com]
+    cookies: [_ga, _gid]
+  - id: segment
+    name: Segment
+    category: analytics
+    script_hosts: [cdn.segment.com, cdn.segment.io]
+    cookies: [ajs_anonymous_id, ajs_user_id]
+  - id: mixpanel
+    name: Mixpanel
+    category: analytics
+    script_hosts: [mxpnl.com, cdn.mixpanel.com]
+  - id: amplitude
+    name: Amplitude
+    category: analytics
+    script_hosts: [cdn.amplitude.com]
+  - id: heap
+    name: Heap
+    category: analytics
+    script_hosts: [cdn.heapanalytics.com]
+  - id: hotjar
+    name: Hotjar
+    category: analytics
+    script_hosts: [static.hotjar.com]
+    cookies: [_hjSessionUser]
+  - id: clarity
+    name: Microsoft Clarity
+    category: analytics
+    script_hosts: [www.clarity.ms]
+  - id: posthog
+    name: PostHog
+    category: analytics
+    script_hosts: [posthog.com]
+  - id: google_search_console
+    name: Google site verification
+    category: analytics
+    txt_prefixes: ["google-site-verification="]
+
+  # -- visitor identification and intent -----------------------------------------
+  - id: clearbit
+    name: Clearbit
+    category: visitor_identification
+    script_hosts: [tag.clearbitscripts.com, x.clearbitjs.com]
+  - id: sixsense
+    name: 6sense
+    category: visitor_identification
+    script_hosts: [j.6sc.co]
+  - id: demandbase
+    name: Demandbase
+    category: visitor_identification
+    script_hosts: [tag.demandbase.com]
+  - id: zoominfo
+    name: ZoomInfo
+    category: visitor_identification
+    script_hosts: [ws.zoominfo.com, js.zi-scripts.com]
+  - id: leadfeeder
+    name: Leadfeeder (Dealfront)
+    category: visitor_identification
+    script_hosts: [sc.lfeeder.com]
+  - id: albacross
+    name: Albacross
+    category: visitor_identification
+    script_hosts: [serve.albacross.com]
+
+  # -- sales engagement -----------------------------------------------------------
+  - id: apollo
+    name: Apollo
+    category: sales_engagement
+    script_hosts: [assets.apollo.io]
+  - id: lemlist
+    name: lemlist
+    category: sales_engagement
+    cname_targets: [custom.lemlist.com]
+  - id: instantly
+    name: Instantly
+    category: sales_engagement
+    cname_targets: [itrackly.com]
+  - id: smartlead
+    name: Smartlead
+    category: sales_engagement
+    cname_targets: [sleadtrack.com]
+  - id: outreach
+    name: Outreach
+    category: sales_engagement
+    # no public footprint we are confident of
+  - id: salesloft
+    name: Salesloft
+    category: sales_engagement
+    # no public footprint we are confident of
+
+  # -- ads ------------------------------------------------------------------------
+  - id: linkedin_insight
+    name: LinkedIn Insight Tag
+    category: ads
+    script_hosts: [snap.licdn.com]
+  - id: meta_pixel
+    name: Meta Pixel
+    category: ads
+    script_hosts: [connect.facebook.net]
+    txt_prefixes: ["facebook-domain-verification="]
+  - id: google_ads
+    name: Google Ads
+    category: ads
+    script_hosts: [googleadservices.com]
