@@ -1,8 +1,9 @@
 # TEARDOWN_SPEC.md
 
-Version 1.1 · 2026-11-12
-Not yet corrected from HAND_NOTES.md.
+Version 1.2 · 2026-11-13
+Corrected from HAND_NOTES.md v1, which covers one teardown, not six.
 1.1: every evidence line shows its source; absences are shown as "Not found".
+1.2: public DNS records count as evidence; section 7 names what DNS cannot show.
 
 The teardown page, the rules the renderer and quality gates enforce, the two
 email variants and the follow-ups. `engine/build/` (drafter, renderer,
@@ -28,7 +29,7 @@ this order.
 | 4 | Why now | The tie to the open role | 40 words |
 | 5 | What I would build | Three concrete items, each a system component | 3 bullets |
 | 6 | Already built for you | The proof slice. Up to ten rows on the page | One table |
-| 7 | What I might have wrong | This is an outside view from public pages; name the specific thing that cannot be seen | 40 words |
+| 7 | What I might have wrong | This is an outside view from public pages and public DNS; name the specific thing that cannot be seen (for a DNS finding: actual sending volume, the DMARC reports, an outbound domain not checked, whether the change is already planned) | 40 words |
 | 8 | About me, and what I am looking for | Three lines on the sender, two links, and the offer stated plainly | 60 words |
 
 Footer: the sender's postal address, one sentence on how to opt out, and a line

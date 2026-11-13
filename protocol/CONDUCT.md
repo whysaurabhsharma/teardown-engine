@@ -1,7 +1,8 @@
 # CONDUCT.md
 
-Version 1 · 2026-11-12
-Not yet corrected from HAND_NOTES.md.
+Version 1.1 · 2026-11-13
+Corrected from HAND_NOTES.md v1, which covers one teardown, not six.
+1.1: DNS lookups are capture, with a fixed list of names and no enumeration.
 
 How the engine and its operator behave toward other people's websites, other
 people's data and other people's inboxes. `engine/guard/`, `engine/capture/`,
@@ -84,6 +85,18 @@ ok | not_found | blocked | dead | robots_denied
 
 Discover pages from the homepage navigation, the footer and `sitemap.xml`. Do
 not guess paths.
+
+### DNS
+
+- DNS lookups are capture like any page fetch and go through `engine/guard/`.
+- Each company gets a fixed, short list of lookups: SPF and DMARC (TXT), MX,
+  a fixed list of DKIM selectors, and a fixed list of candidate sending
+  subdomains (at least `em.`, `mail.` and `sg.`). The lists are defined once,
+  in the capture bundle, and versioned.
+- Never enumerate: no zone transfers, no wordlist brute-forcing of
+  subdomains, no certificate-log sweeps. A name not on the list is not
+  looked up.
+- A name that does not resolve is a `not_found` result, which is itself a fact.
 
 ### Playwright
 

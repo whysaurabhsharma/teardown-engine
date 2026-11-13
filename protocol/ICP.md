@@ -1,8 +1,9 @@
 # ICP.md
 
-Version 1.1 · 2026-11-12
-Not yet corrected from HAND_NOTES.md.
+Version 1.2 · 2026-11-13
+Checked against HAND_NOTES.md v1 (one teardown, not six); no rule changed.
 1.1: adds the `duplicate` drop reason, applied at human review.
+1.2: version line only.
 
 Who qualifies, who is excluded, and how each company is given a segment.
 `engine/resolve/segment.py` and `engine/resolve/qualify.py` read this file.

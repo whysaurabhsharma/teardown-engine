@@ -6,8 +6,8 @@ description: The five teardown gaps (G1-G5), their evidence and abstain conditio
 # Gap codebook
 
 Source of truth: `protocol/GAPS.md`. If this skill and GAPS.md disagree, GAPS.md
-wins; update this skill and say so. Synced to GAPS.md v1 (not yet corrected
-from HAND_NOTES.md; GAPS.md goes to v2 in Step 45). GAPS.md also holds the
+wins; update this skill and say so. Synced to GAPS.md v1.2 (corrected from
+HAND_NOTES.md; GAPS.md goes to v2 in Step 45). GAPS.md also holds the
 faithfulness, verifier and held-out scoring rules.
 
 ## The task
@@ -25,6 +25,12 @@ as a grade of the company.
 | G4 | Proof that speaks to their market | Hiring to sell into a region the site shows no customers from | The post names a target region; every case study and logo is from somewhere else | Case studies from the target region exist | icp_accounts, limited to that region |
 | G5 | Inbound that reaches them | A demo path that asks a lot before anyone talks | The demo form has eight or more fields, or no booking step, or a general contact form is the only route; AE or SDR roles are open | The form is short and has a booking step | funnel_compare |
 
+G6 (provisional, GAPS.md 1.2): reputation separation between the two sides'
+email in a two-sided marketplace. Evidence: public DNS shows one sending domain
+with no sending subdomains, plus high-volume outreach to the other side.
+Abstain when a separate outbound domain exists or SPF authorises distinct
+senders per subdomain. Slice: dns_inventory.
+
 Not primary findings: hidden pricing, a broad or unclear job description. Either
 may appear once, as a question, in a follow-up.
 
@@ -35,6 +41,9 @@ may appear once, as a question, in a follow-up.
   on the page are under 25 words.)
 - Several gaps may fit: return the one with the strongest evidence as
   `gap_type`; list the others in `secondary`.
+- Evidence can contradict the expected gap: abstain with `attempted: false`
+  and `abstain_reason` starting `contradicted:`. Other codes: `no_evidence:`,
+  `thin:`.
 - Abstaining is expected. Plan for 40 to 60 percent `no_gap`. A high drop rate
   is the system working.
 - `attempted` is an explicit boolean the judge sets. Never infer abstention from

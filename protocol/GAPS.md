@@ -1,8 +1,9 @@
 # GAPS.md
 
-Version 1.1 · 2026-11-12
-Not yet corrected from HAND_NOTES.md.
+Version 1.2 · 2026-11-13
+Corrected from HAND_NOTES.md v1, which covers one teardown, not six.
 1.1: claims carry `found` and `url`; absence is a `not_found` claim, not a quote.
+1.2: adds provisional G6 and the `contradicted` abstention, from HAND_NOTES.md.
 
 The five gaps the judge may name, their evidence and abstain conditions, and
 the rules that decide when the judge names one or abstains. The judge prompt
@@ -34,6 +35,12 @@ kinds and maps to one proof slice.
 | G3 | Tooling and process around them | A first GTM hire asked to be rep, operations and tooling at once | The post says founding or first hire and lists list-building, sequencing and CRM setup; no operations role is open; no sales tooling is detected | An operations role is open, or tooling is clearly in place | icp_accounts, shown with the recipe that produced it |
 | G4 | Proof that speaks to their market | Hiring to sell into a region the site shows no customers from | The post names a target region; every case study and logo is from somewhere else | Case studies from the target region exist | icp_accounts, limited to that region |
 | G5 | Inbound that reaches them | A demo path that asks a lot before anyone talks | The demo form has eight or more fields, or no booking step, or a general contact form is the only route; AE or SDR roles are open | The form is short and has a booking step | funnel_compare |
+| G6 (provisional) | Reputation separation between the two sides' email before outbound to the sold-to side begins | Candidate-side (or user-side) sending machinery with no employer-side (buyer-side) equivalent | Public DNS shows a single sending domain with no sending subdomains, plus public evidence of high-volume outreach to the other side | A separate outbound domain exists, or SPF already authorises distinct senders per subdomain | dns_inventory |
+
+G6 applies to two-sided marketplaces where one side is acquired at scale and
+the other is sold to. It is provisional: it rests on one hand teardown
+(HAND_NOTES.md), and is confirmed or removed at v2 in Step 45. Its evidence is
+the `dns` artifact, which the company's own pages cannot show.
 
 `role_funnel` is the fallback slice for any gap when the primary slice fails
 (each open GTM role beside what it will need and what the site shows today).
@@ -52,6 +59,13 @@ follow-up.
 - Plan for 40 to 60 percent of qualified companies to be dropped here. A high
   drop rate is the system working.
 - When a gap's abstain condition holds, that gap is not named.
+- The judge can abstain because the evidence contradicts the gap it expected,
+  not only because evidence is missing. It then sets `attempted` to false and
+  starts `abstain_reason` with `contradicted:`, followed by the expected gap
+  and the quote or record that contradicts it. In the one hand teardown, the
+  hypothesis written before the evidence was wrong, and the evidence caught it.
+- `abstain_reason` starts with one of three codes: `no_evidence:`,
+  `contradicted:` or `thin:` (evidence fits but is below the confidence floor).
 
 ## Evidence rules
 

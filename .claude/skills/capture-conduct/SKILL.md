@@ -48,6 +48,12 @@ it is wrong. Record `blocked` and move on.
 - `fresh=True` bypasses the cache only for send-day rechecks of cited pages.
 - Changing an extractor re-derives from cache; it never refetches.
 
+## DNS
+- Lookups go through `engine/guard/`. Fixed list only: SPF/DMARC TXT, MX,
+  fixed DKIM selectors, fixed sending subdomains (at least em., mail., sg.).
+- Never enumerate: no zone transfers, no wordlists, no certificate-log sweeps.
+- A name that does not resolve is `not_found`, a fact.
+
 ## Playwright
 - Fallback only: when an `ok` page yields under 500 characters of text.
 - Headless chromium, at most 2 playwright pages per company.
