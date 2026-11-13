@@ -22,6 +22,10 @@ module enforces the conduct rules, the same as guard.http:
   guard.http stores a response body; it is never parsed before storing. Its
   cache index key is "browser:" + url, so it never answers a plain HTTP fetch.
   A same-day repeat is a cache hit and starts no browser.
+- the browser's own requests are paced per host by Guard's limiter but do not
+  take Guard's in-flight slots: holding one across a render would deadlock the
+  robots.txt fetches allow() makes. Capture bounds it instead (2 pages per
+  company, one company's pages at a time).
 """
 
 from __future__ import annotations
@@ -83,19 +87,29 @@ class PlaywrightRenderer:
 
     async def render(self, url: str, *, user_agent: str, allow: Allow,
                      timeout: float) -> Rendered:
-        from playwright.async_api import Error as PlaywrightError
-        from playwright.async_api import TimeoutError as PlaywrightTimeout
+        try:
+            from playwright.async_api import Error as PlaywrightError
+            from playwright.async_api import TimeoutError as PlaywrightTimeout
+        except ImportError as e:
+            raise BrowserError(f"playwright is not installed: {e}") from None
 
         browser = await self._ensure()
-        ctx = await browser.new_context(user_agent=user_agent, service_workers="block")
+        try:
+            ctx = await browser.new_context(user_agent=user_agent, service_workers="block")
+        except PlaywrightError as e:
+            raise BrowserError(f"cannot open a browser context: {str(e).splitlines()[0]}") from None
         try:
             page = await ctx.new_page()
 
             async def handle(route: Any, request: Any) -> None:
-                if await allow(request.url, request.resource_type):
-                    await route.continue_()
-                else:
-                    await route.abort()
+                try:
+                    ok = await allow(request.url, request.resource_type)
+                except Exception:  # never leave a request hanging; refuse it
+                    ok = False
+                try:
+                    await (route.continue_() if ok else route.abort())
+                except PlaywrightError:
+                    pass  # the page or context closed while the request waited
 
             await page.route("**/*", handle)
             try:
@@ -106,8 +120,11 @@ class PlaywrightRenderer:
                 await page.wait_for_load_state("networkidle", timeout=SETTLE_SECONDS * 1000)
             except PlaywrightTimeout:
                 pass
-            html = await page.content()
-            headers = await resp.all_headers() if resp is not None else {}
+            try:
+                html = await page.content()
+                headers = await resp.all_headers() if resp is not None else {}
+            except PlaywrightError as e:
+                raise BrowserError(f"cannot read the page: {str(e).splitlines()[0]}") from None
             return Rendered(status=resp.status if resp is not None else None,
                             final_url=page.url, html=html, headers=headers)
         finally:

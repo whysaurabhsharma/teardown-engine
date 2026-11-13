@@ -1141,6 +1141,147 @@ def pilot_unpick(company_id: str, db_file: Path | None) -> None:
     click.echo(f"unpicked {company_id}" if changed else f"{company_id} was not in the pilot")
 
 
+@main.command("capture")
+@click.option("--pilot", is_flag=True, help="Only the pilot and hand sets.")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--limit", type=click.IntRange(min=1), default=None,
+              help="Capture at most this many companies.")
+@click.option("--dry-run", is_flag=True, help="Print the projected requests and exit.")
+@click.option("--recheck", "recheck_id", default=None, metavar="COMPANY_ID",
+              help="Re-fetch, fresh, only the artifacts this company's latest diagnosis cites.")
+@click.option("--max-in-flight", type=click.IntRange(min=1, max=4), default=4, show_default=True,
+              help="Companies (so hosts) captured at once. Per-host pacing stays 1 request "
+                   "per second whatever this is.")
+@click.option("--max-fetches", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on HTTP requests (default 500).")
+@click.option("--max-dns", type=click.IntRange(min=1), default=None,
+              help="Per-run ceiling on DNS queries (default 1000).")
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def capture_cmd(
+    pilot: bool,
+    company_id: str | None,
+    limit: int | None,
+    dry_run: bool,
+    recheck_id: str | None,
+    max_in_flight: int,
+    max_fetches: int | None,
+    max_dns: int | None,
+    cache_dir: Path | None,
+    db_file: Path | None,
+) -> None:
+    """Capture each company's evidence bundle (Steps 32-34).
+
+    One artifacts row per bundle kind, whatever the outcome; raw bodies in the
+    cache. A qualified company with a complete bundle moves to captured, or is
+    dropped no_site_evidence with fewer than 3 ok artifacts. No model calls.
+    """
+    from engine import db as dbmod
+    from engine.capture import bundle
+    from engine.capture import capture as cap
+    from engine.guard.budget import Budget, BudgetExceeded
+    from engine.guard.cache import Cache
+    from engine.guard.dns import DnsGuard
+    from engine.guard.http import GuardConfigError
+
+    try:
+        conn = dbmod.connect(db_file)
+    except dbmod.DatabaseError as e:
+        _fail(str(e))
+        return
+    budget = Budget()
+    if max_fetches is not None:
+        budget.max_fetches = max_fetches
+    if max_dns is not None:
+        budget.max_dns_queries = max_dns
+    cache = Cache(cache_dir)
+    try:
+        if recheck_id is not None:
+            kinds = cap.cited_kinds(conn, recheck_id)
+            if kinds is None:
+                _fail(f"{recheck_id}: no diagnosis, so nothing is cited; nothing rechecked")
+                return
+            if not kinds:
+                click.echo(f"{recheck_id}: the latest diagnosis cites no bundle artifact; "
+                           "nothing rechecked")
+                return
+            if dry_run:
+                click.echo(f"dry run: would re-fetch fresh for {recheck_id}: {', '.join(kinds)}")
+                return
+
+            async def go_recheck() -> cap.Recheck:
+                rt = cap.make_runtime(cache, budget, max_in_flight)
+                try:
+                    return await cap.recheck(conn, recheck_id, kinds, rt)
+                finally:
+                    await rt.aclose()
+
+            try:
+                rc = asyncio.run(go_recheck())
+            except (GuardConfigError, BudgetExceeded, cap.CaptureError) as e:
+                _fail(str(e))
+                return
+            for kind in kinds:
+                a = rc.rows[kind]
+                click.echo(f"{kind:<10} {a.outcome:<14} {a.url}  {a.detail or ''}".rstrip())
+            click.echo(f"rechecked {len(kinds)} artifacts fresh; {rc.changed} changed; "
+                       f"{rc.requests} requests, {rc.dns_queries} DNS queries")
+            return
+
+        try:
+            sel = cap.select(conn, pilot=pilot, company_id=company_id, limit=limit)
+        except cap.CaptureError as e:
+            _fail(str(e))
+            return
+        for why in sel.refused:
+            click.echo(f"refused {why}")
+        if sel.complete:
+            click.echo(f"already captured at {bundle.BUNDLE_VERSION}: {len(sel.complete)} "
+                       "(nothing to do)")
+        if company_id is not None and sel.refused:
+            sys.exit(1)
+        if dry_run:
+            d = cap.dry_run(sel.targets, cache, DnsGuard(cache=cache, budget=budget))
+            for line in cap.format_dry_run(d, budget):
+                click.echo(line)
+            return
+        if not sel.targets:
+            click.echo("companies to capture 0")
+            return
+
+        async def go() -> cap.Report:
+            rt = cap.make_runtime(cache, budget, max_in_flight)
+            try:
+                return await cap.run(conn, sel.targets, rt, max_in_flight=max_in_flight)
+            finally:
+                await rt.aclose()
+
+        rep = asyncio.run(go())
+    finally:
+        conn.close()
+
+    for cid, state, counts in rep.results:
+        line = ", ".join(f"{k} {counts[k]}" for k in ("ok", "not_found", "blocked", "dead",
+                                                      "robots_denied") if counts[k])
+        click.echo(f"{cid[:36]:<36}  {state:<9} {line}")
+    for err in rep.errors:
+        click.echo(f"error {err}")
+    click.echo(f"companies {rep.companies}: captured {rep.states['captured']}, dropped "
+               f"no_site_evidence {rep.states['dropped']}, status kept {rep.states['kept']}; "
+               f"rows changed {rep.changed}")
+    click.echo("artifacts by outcome: " + ", ".join(
+        f"{k} {rep.outcomes[k]}" for k in ("ok", "not_found", "blocked", "dead", "robots_denied")))
+    click.echo(f"blocked rate {rep.blocked_rate:.1%} ({rep.outcomes['blocked']} of {rep.rows} "
+               f"artifacts)")
+    click.echo("fetchers: " + ", ".join(f"{k} {v}" for k, v in sorted(rep.fetchers.items()))
+               + f"; playwright pages {rep.playwright_pages}; requests {rep.requests}; "
+               f"DNS queries {rep.dns_queries}")
+    if rep.stopped:
+        click.echo(f"stopped: {rep.stopped}", err=True)
+    sys.exit(1 if rep.errors or rep.stopped else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

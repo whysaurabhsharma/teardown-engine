@@ -1,9 +1,11 @@
-"""Per-run ceilings on network requests and model calls, and the --dry-run projection.
+"""Per-run ceilings on network requests, DNS queries and model calls, and the --dry-run projection.
 
 Guard charges one fetch for every HTTP request it actually sends (robots.txt,
 redirect hops and the one Retry-After retry included); cache hits are free.
 Going over a ceiling raises BudgetExceeded before the request is sent, which
 stops the run rather than recording an outcome: it is our limit, not the site's.
+guard.dns charges one DNS query for every lookup it sends, against its own
+ceiling, so the fixed DNS list never eats the page-fetch ceiling.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from engine.guard.cache import Cache
 
 DEFAULT_MAX_FETCHES = 500
 DEFAULT_MAX_MODEL_CALLS = 200
+DEFAULT_MAX_DNS_QUERIES = 1000
 
 
 class BudgetExceeded(RuntimeError):
@@ -28,6 +31,8 @@ class Budget:
     max_model_calls: int = DEFAULT_MAX_MODEL_CALLS
     fetches: int = 0
     model_calls: int = 0
+    max_dns_queries: int = DEFAULT_MAX_DNS_QUERIES
+    dns_queries: int = 0
 
     def charge_fetch(self, n: int = 1) -> None:
         if self.fetches + n > self.max_fetches:
@@ -35,6 +40,13 @@ class Budget:
                 f"fetch ceiling reached: {self.fetches} of {self.max_fetches} used this run"
             )
         self.fetches += n
+
+    def charge_dns(self, n: int = 1) -> None:
+        if self.dns_queries + n > self.max_dns_queries:
+            raise BudgetExceeded(
+                f"DNS query ceiling reached: {self.dns_queries} of {self.max_dns_queries} used this run"
+            )
+        self.dns_queries += n
 
     def charge_model_call(self, n: int = 1) -> None:
         if self.model_calls + n > self.max_model_calls:

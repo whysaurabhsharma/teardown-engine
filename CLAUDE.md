@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-PAUSED. Phase 2 code done (through Steps 30-31 tooling). Steps 32-34 (capture) partly built, committed as wip, untested. Next: Phase 2 live run once SENDER_EMAIL and GOOGLE_API_KEY are in .env; then finish Steps 32-34.
+Phase 3: Steps 32-34 done (capture: bundle-1.0, discovery, guarded fetch, DNS inventory, playwright fallback). protocol-v1 tagged. Gates 1.3 (domain check), 2.1-2.3 and 3.1 need live runs. Next: Steps 35-36.

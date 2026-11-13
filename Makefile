@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify backup verify
+.PHONY: test smoke signal careers resolve qualify capture backup verify
 
 test:
 	uv run pytest
@@ -27,3 +27,6 @@ resolve:
 
 qualify:
 	uv run te qualify
+
+capture:
+	uv run te capture --pilot

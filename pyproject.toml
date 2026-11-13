@@ -38,3 +38,8 @@ packages = ["engine"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# browser tests start a real headless chromium; run them with `uv run pytest -m browser`
+addopts = "-m 'not browser'"
+markers = [
+    "browser: needs a real headless chromium (playwright install chromium); skipped by default",
+]
