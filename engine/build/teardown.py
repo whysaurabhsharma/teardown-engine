@@ -204,6 +204,16 @@ class Email(_M):
     subject: str | None = None  # adjacent only: the three-word observation
 
 
+class Drafted(_M):
+    """Written by `te draft` (engine/build/drafter.py, Step 64): the drafter's prompt
+    version, the cache key of the draft, and a hash of each section as drafted, so
+    a later run can tell a section a person has edited and leave it alone."""
+
+    by: str
+    key: str
+    sections: dict[str, str]
+
+
 class TeardownDoc(_M):
     version: str
     company_id: str
@@ -217,6 +227,7 @@ class TeardownDoc(_M):
     might_have_wrong: str
     competitors: list[Competitor] = []
     email: Email | None = None
+    drafted: Drafted | None = None
 
 
 def teardowns_dir(path: str | os.PathLike[str] | None = None) -> Path:

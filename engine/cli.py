@@ -12,7 +12,6 @@ import click
 STUB_COMMANDS = (
     "understand",
     "build",
-    "draft",
     "send",
 )
 
@@ -2726,6 +2725,149 @@ def queue_done(company_id: str, minutes: float, dry_run: bool, db_file: Path | N
         conn.close()
     _echo_result(r)
     sys.exit(1 if r.outcome == "refused" else 0)
+
+
+# --- draft and quality (Steps 64-65) -------------------------------------------------
+
+
+class _DraftGroup(click.Group):
+    """`te draft <company_id>` beside `te draft init-voice`: a first argument that is
+    not a subcommand is the company id."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
+            args = ["--company", args[0], *args[1:]]
+        return super().parse_args(ctx, args)
+
+
+_voice_option = click.option(
+    "--voice", "voice_file", type=click.Path(dir_okay=False, path_type=Path), default=None,
+    help="Voice examples file (default: $TE_VOICE_EXAMPLES or data/voice_examples.yaml).")
+
+
+@main.group("draft", cls=_DraftGroup, invoke_without_command=True)
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every pilot company with a named gap.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--dry-run", is_flag=True, help="Build each prompt; no call, no write.")
+@click.option("--force", is_flag=True, help="Overwrite sections a person has edited.")
+@click.option("--no-voice", is_flag=True, help="Run without voice examples.")
+@_voice_option
+@_teardowns_option
+@_db_option
+@click.pass_context
+def draft_cmd(ctx: click.Context, company_id: str | None, pilot: bool, limit: int | None,
+              dry_run: bool, force: bool, no_voice: bool, voice_file: Path | None,
+              teardowns_dir: Path | None, db_file: Path | None) -> None:
+    """Draft sections 3, 4, 5, 7 and the email into the teardown file (Step 64).
+
+    One call per company on the drafter route, keyed on (draft, company_id,
+    d-1.0:<hash of the inputs>): a re-run with the same inputs makes no call.
+    Never overwrites a section a person edited without --force. Exits 1 on any
+    refused or error.
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+    from engine.build import drafter as DR
+    from engine.guard.budget import BudgetExceeded
+
+    if not company_id and not pilot:
+        _fail("give a company_id, --company or --pilot")
+        return
+    conn = _conn_or_fail(db_file)
+    bad = calls = 0
+    counts: dict[str, int] = {}
+    try:
+        for cid in DR.select(conn, company_id=company_id, pilot=pilot, limit=limit):
+            try:
+                r = DR.draft_company(conn, cid, directory=teardowns_dir, voice_file=voice_file,
+                                     no_voice=no_voice, force=force, dry_run=dry_run)
+            except DR.DrafterError as e:
+                _fail(f"refused: {e}")
+                return
+            except BudgetExceeded as e:
+                click.echo(f"stopped: {e}")
+                bad += 1
+                break
+            for w in r.warnings:
+                click.echo(f"{cid}: warning: {w}")
+            extra = f"; prompt {r.prompt_chars} chars, voice examples {r.voice}"
+            if r.masked:
+                extra += f", {r.masked} contact values masked"
+            click.echo(f"{cid}: {r.outcome}: {r.detail}{extra}")
+            if r.outcome == "drafted" and r.path:
+                click.echo(f"{cid}: wrote {r.path}; next: te quality {cid}")
+            counts[r.outcome] = counts.get(r.outcome, 0) + 1
+            calls += r.calls
+            bad += r.outcome in ("refused", "error")
+    finally:
+        conn.close()
+    summary = ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+    click.echo(f"draft: companies {sum(counts.values())}: {summary or 'none'}; "
+               f"provider calls {calls}")
+    sys.exit(1 if bad else 0)
+
+
+@draft_cmd.command("init-voice")
+@_voice_option
+@click.option("--force", "force_voice", is_flag=True, help="Overwrite an existing file.")
+def draft_init_voice(voice_file: Path | None, force_voice: bool) -> None:
+    """Write a voice_examples.yaml skeleton: three sent emails, names removed."""
+    from engine.build import drafter as DR
+
+    try:
+        p = DR.init_voice(voice_file, force=force_voice)
+    except DR.DrafterError as e:
+        _fail(f"refused: {e}")
+        return
+    click.echo(f"wrote {p}; paste the emails you sent, with every name replaced")
+
+
+@main.command("quality")
+@click.argument("company_id", required=False)
+@click.option("--company", "company_opt", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every pilot company with a teardown file.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--dry-run", is_flag=True, help="Run the gates; record nothing.")
+@_teardowns_option
+@_sender_option
+@_db_option
+def quality_cmd(company_id: str | None, company_opt: str | None, pilot: bool,
+                limit: int | None, dry_run: bool, teardowns_dir: Path | None,
+                sender_file: Path | None, db_file: Path | None) -> None:
+    """Run the quality gates before human review (Step 65); exit 1 on any failure.
+
+    No model call. Records pass/fail and the reasons in quality_checks.
+    """
+    from engine.build import quality as QG
+    from engine.build import teardown as T
+
+    cid = company_id or company_opt
+    if not cid and not pilot:
+        _fail("give a company_id, --company or --pilot")
+        return
+    conn = _conn_or_fail(db_file)
+    failed = passed = 0
+    try:
+        for i in QG.select(conn, company_id=cid, pilot=pilot, limit=limit,
+                           directory=teardowns_dir):
+            try:
+                r = QG.run_company(conn, i, directory=teardowns_dir, sender_file=sender_file,
+                                   dry_run=dry_run)
+            except T.TeardownError as e:
+                click.echo(f"{i}: error: {e}")
+                failed += 1
+                continue
+            for x in r.reasons:
+                click.echo(f"{i}: FAIL {x.gate}: {x.message}")
+            click.echo(f"{i}: " + ("pass" if r.passed else f"fail ({len(r.reasons)} reason(s))")
+                       + f"; {r.recorded}")
+            passed += r.passed
+            failed += not r.passed
+    finally:
+        conn.close()
+    click.echo(f"quality {'dry run ' if dry_run else ''}: passed {passed}, failed {failed}")
+    sys.exit(1 if failed else 0)
 
 
 @main.group()

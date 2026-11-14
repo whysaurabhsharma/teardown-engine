@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Teardown draft d-1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["section3", "section4", "section5", "section7", "email"],
+  "properties": {
+    "section3": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sentence", "claim_indices"],
+        "properties": {
+          "sentence": {"type": "string", "minLength": 1},
+          "claim_indices": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "section4": {"type": "string", "minLength": 1},
+    "section5": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "section7": {"type": "string", "minLength": 1},
+    "email": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observation", "observation_claims", "slice_name", "subject_observation"],
+      "properties": {
+        "observation": {"type": "string", "minLength": 1},
+        "observation_claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "slice_name": {"type": "string", "minLength": 1},
+        "subject_observation": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

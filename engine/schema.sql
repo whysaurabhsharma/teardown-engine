@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 16), for reading.
+-- engine/schema.sql: the current full schema (version 17), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -494,4 +494,18 @@ CREATE TABLE slice_artifacts (
     structure_sha256  TEXT,
     extractor_version TEXT,
     UNIQUE (company_id, slice_kind, subject_domain, kind)
+);
+
+-- quality_checks was added by 0017_quality: the latest automated quality-gate
+-- result per company (Step 65, `te quality`), with the reasons a teardown was
+-- failed before human review, for the review queue (Step 66).
+CREATE TABLE quality_checks (
+    company_id  TEXT PRIMARY KEY REFERENCES companies(company_id),
+    version     TEXT NOT NULL,
+    passed      INTEGER NOT NULL CHECK (passed IN (0, 1)),
+    reasons     TEXT NOT NULL DEFAULT '[]'
+                    CHECK (json_valid(reasons) AND json_type(reasons) = 'array'),
+    file_sha256 TEXT,
+    checked_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    CHECK ((passed = 1) = (json_array_length(reasons) = 0))
 );

@@ -481,8 +481,38 @@ class SliceArtifact(Row):
     extractor_version: str | None = None
 
 
+class QualityReason(BaseModel):
+    """One failed gate: the gate's name and what failed. Never a contact value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    gate: NonBlank
+    message: NonBlank
+
+
+class QualityCheck(Row):
+    """The latest automated quality-gate result for a company's teardown (0017;
+    engine/build/quality.py, Step 65). reasons is empty exactly when passed."""
+
+    TABLE: ClassVar[str] = "quality_checks"
+    JSON_FIELDS: ClassVar[frozenset[str]] = frozenset({"reasons"})
+
+    company_id: NonBlank
+    version: NonBlank
+    passed: bool
+    reasons: list[QualityReason] = Field(default_factory=list)
+    file_sha256: str | None = None
+    checked_at: str | None = None
+
+    @model_validator(mode="after")
+    def _passed_means_no_reasons(self) -> QualityCheck:
+        if self.passed == bool(self.reasons):
+            raise ValueError("passed is true exactly when there are no reasons")
+        return self
+
+
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
-    SliceRow, SliceCompetitor, SliceArtifact,
+    SliceRow, SliceCompetitor, SliceArtifact, QualityCheck,
 )

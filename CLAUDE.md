@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phases 1-4 code done; Phase 5 Steps 60-63 done (slices: role_funnel, dns_inventory, funnel_compare, icp_accounts; migration 0016). Live gates open. Next: Steps 64-65 (drafter, quality gates).
+Phases 1-4 code done; Phase 5 Steps 60-65 done (slices, drafter d-1.0, quality gates q-1.0; migration 0017). Live gates open. Next: Steps 66, 71, 74, 75 (review queue, follow-ups, bounces, applied).
