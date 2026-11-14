@@ -372,6 +372,9 @@ class Touch(Row):
     draft_id: str | None = None  # Gmail draft id (0015); None for a LinkedIn touch
     drafted_at: datetime | None = None  # when the engine drafted it (0015)
     status: Literal["drafted", "sent"] | None = None  # 0015; a person sends
+    applied_on: date | None = None  # 0018: te queue applied (Step 75)
+    applied_note: str | None = None  # 0018; never a person's name or contact
+    bounced_on: date | None = None  # 0018: te queue bounce (Step 74)
 
 
 class LlmCall(Row):
@@ -511,8 +514,49 @@ class QualityCheck(Row):
         return self
 
 
+class Review(Row):
+    """One decision a person took in the review queue (0018; engine/outreach/review.py,
+    Step 66). reason is the kill reason code, set exactly when decision is kill;
+    edited maps a drafted section to the fraction of its text changed (None when the
+    drafted text is not available to compare)."""
+
+    TABLE: ClassVar[str] = "reviews"
+    JSON_FIELDS: ClassVar[frozenset[str]] = frozenset({"edited"})
+
+    review_id: int | None = None
+    company_id: NonBlank
+    decision: Literal["approve", "kill", "edited"]
+    reason: str | None = None
+    note: str | None = None
+    edited: dict[str, Annotated[float, Field(ge=0, le=1)] | None] = Field(default_factory=dict)
+    minutes: Annotated[float, Field(gt=0)] | None = None
+    file_sha256: str | None = None
+    version: NonBlank
+    decided_at: str | None = None
+
+    @model_validator(mode="after")
+    def _reason_with_kill(self) -> Review:
+        has = self.reason is not None and bool(self.reason.strip())
+        if (self.decision == "kill") != has:
+            raise ValueError("a kill gives a reason; approve and edited give none")
+        return self
+
+
+class SendStop(Row):
+    """The global stop on drafting after two bounces in one day (0018; Step 74)."""
+
+    TABLE: ClassVar[str] = "send_stops"
+
+    stop_id: int | None = None
+    reason: NonBlank
+    stopped_on: date
+    stopped_at: str | None = None
+    resumed_at: str | None = None
+    resume_reason: str | None = None
+
+
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
-    SliceRow, SliceCompetitor, SliceArtifact, QualityCheck,
+    SliceRow, SliceCompetitor, SliceArtifact, QualityCheck, Review, SendStop,
 )

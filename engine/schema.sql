@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 17), for reading.
+-- engine/schema.sql: the current full schema (version 18), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -359,13 +359,16 @@ CREATE TABLE touches (
     reply_at        TEXT,
     applied         INTEGER CHECK (applied IS NULL OR applied IN (0, 1)),
     hubspot_deal_id TEXT, draft_id TEXT, drafted_at TEXT, status TEXT
-    CHECK (status IS NULL OR status IN ('drafted', 'sent')),
+    CHECK (status IS NULL OR status IN ('drafted', 'sent')), applied_on TEXT, applied_note TEXT, bounced_on TEXT,
     UNIQUE (company_id, touch_no)
 );
 -- touches.draft_id, drafted_at and status were added by 0015_touch_drafts
 -- (`te queue draft` / `te queue sent`, engine/outreach/draft.py): the Gmail
 -- draft id (NULL for a LinkedIn touch sent by hand), when the engine drafted
 -- it, and drafted | sent. The engine never sends; a person confirms a send.
+-- touches.applied_on, applied_note and bounced_on were added by
+-- 0018_review_followups: the application date (`te queue applied`, Step 75)
+-- and the date a message bounced (`te queue bounce`, Step 74).
 
 -- cost_usd was added by 0002_llm_cost; it is laid out the way SQLite stores
 -- an ALTER TABLE ADD COLUMN so this file matches the migrated database.
@@ -508,4 +511,48 @@ CREATE TABLE quality_checks (
     file_sha256 TEXT,
     checked_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     CHECK ((passed = 1) = (json_array_length(reasons) = 0))
+);
+
+-- reviews and send_stops were added by 0018_review_followups (Steps 66, 74).
+-- reviews: one row per decision a person takes in the review queue (`te queue
+-- open`, Step 66).
+--   decision   approve | kill | edited (edited: the person changed the file and
+--              said so; approve and kill also snapshot the edits)
+--   reason     the kill reason code (engine/outreach/review.py KILL_REASONS);
+--              set exactly when decision = kill
+--   note       free text typed with the decision. Never a person's name or contact.
+--   edited     JSON object: drafted section -> fraction of its text changed
+--              against the drafter's output (0..1), or null when the drafted
+--              text is not available to compare; a section absent was not edited
+--   minutes    review minutes: typed, or the time from opening the page
+--   file_sha256  the teardown file the decision was taken on
+--   version    the queue's version string (review.REVIEW_VERSION)
+CREATE TABLE reviews (
+    review_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  TEXT NOT NULL REFERENCES companies(company_id),
+    decision    TEXT NOT NULL CHECK (decision IN ('approve', 'kill', 'edited')),
+    reason      TEXT,
+    note        TEXT,
+    edited      TEXT NOT NULL DEFAULT '{}'
+                    CHECK (json_valid(edited) AND json_type(edited) = 'object'),
+    minutes     REAL CHECK (minutes IS NULL OR minutes > 0),
+    file_sha256 TEXT,
+    version     TEXT NOT NULL,
+    decided_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    CHECK ((decision = 'kill') = (reason IS NOT NULL AND length(trim(reason)) > 0))
+);
+CREATE INDEX reviews_company ON reviews(company_id);
+
+-- send_stops: the global stop on drafting (CONDUCT Part 3, "Bounces"; Step 74).
+-- Two bounces on one UTC day write a row; `te queue draft` refuses while a row
+-- has resumed_at NULL; `te queue resume --reason ...` sets resumed_at and
+-- resume_reason after the remaining addresses are re-verified.
+CREATE TABLE send_stops (
+    stop_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    reason        TEXT NOT NULL CHECK (length(trim(reason)) > 0),
+    stopped_on    TEXT NOT NULL,
+    stopped_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    resumed_at    TEXT,
+    resume_reason TEXT,
+    CHECK ((resumed_at IS NULL) = (resume_reason IS NULL))
 );

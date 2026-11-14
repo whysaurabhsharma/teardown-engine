@@ -13,7 +13,9 @@ by hand, and then runs `te queue sent`.
 
 approve. The human gate between built and approved (states.py; Step 69:
 "review tomorrow's batch ... and approve"). Run it after reading the page and
-the email preview it prints. It refuses unless `te teardown check` passes, the
+the email preview it prints (or from the review queue, `te queue open`, which
+calls the same function). It refuses a teardown killed in review whose file has
+not changed since the kill, and refuses unless `te teardown check` passes, the
 rendered page under site/<slug>/ is current, and the email block of the
 teardown file fills the spec's variant cleanly. It sets the company to
 approved and teardowns.review_state to approved. A teardown pulled back for
@@ -23,6 +25,8 @@ the same way.
 draft. For each approved company whose teardown is approved and has no touch
 1 yet, in this order (a refusal stops that company and changes nothing unless
 said):
+  0. the stop: two bounces on one day (Step 74, engine/outreach/bounces.py)
+     stop every draft until `te queue resume` -> refused.
   1. suppressions: the recipient's address, its domain or the company's
      domain is suppressed (Step 72) -> refused.
   2. local checks: TEARDOWN_BASE_URL set, an https URL, not a shortener; the
@@ -491,6 +495,11 @@ def approve(conn: sqlite3.Connection, company_id: str, *, teardowns: Path | None
         return Result(company_id, "unchanged", "already approved")
     if status not in (Status.BUILT, Status.APPROVED):
         return Result(company_id, "refused", f"status {status}; approve takes a built teardown")
+    from engine.outreach.review import kill_hold
+
+    held = kill_hold(conn, company_id, teardowns=teardowns)
+    if held:  # Step 66: a killed teardown is approved only once its file has changed
+        return Result(company_id, "refused", held)
     try:
         r = prepare(conn, company_id, teardowns=teardowns, sender_file=sender_file, site=site,
                     need_link=False)
@@ -785,6 +794,11 @@ async def draft_company(conn: sqlite3.Connection, company_id: str, *, checks: Ch
         c = company_row(conn, company_id)
     except QueueError as e:
         return Result(company_id, "refused", str(e))
+    from engine.outreach.bounces import stop_problem
+
+    stopped = stop_problem(conn)
+    if stopped:  # Step 74: two bounces in one day stop every draft until te queue resume
+        return Result(company_id, "refused", stopped)
     status = Status(c["status"])
     t1 = touch_one(conn, company_id)
     done_why = touch_done(t1)

@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phases 1-4 code done; Phase 5 Steps 60-65 done (slices, drafter d-1.0, quality gates q-1.0; migration 0017). Live gates open. Next: Steps 66, 71, 74, 75 (review queue, follow-ups, bounces, applied).
+Phases 1-4 code done; Phase 5-6 Steps 60-66, 71, 74, 75 done (slices, drafter, quality, review queue, follow-ups, bounces, applied; migration 0018). Live gates open. Next: Steps 67, 76-78, 80 (HubSpot, replies, metrics, prep).

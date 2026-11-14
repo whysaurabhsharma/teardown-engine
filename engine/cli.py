@@ -2575,7 +2575,8 @@ def slice_competitors(company_id: str, sets: tuple[str, ...], yes: bool, dry_run
 
 @main.group("queue")
 def queue_group() -> None:
-    """The send queue: approve, draft (Gmail drafts only), sent, done. Nothing is sent."""
+    """The send queue: open, report, approve, applied, draft (Gmail drafts only), sent,
+    done, followups, followup-sent, bounce, resume. Nothing is sent."""
 
 
 _site_option = click.option(
@@ -2725,6 +2726,243 @@ def queue_done(company_id: str, minutes: float, dry_run: bool, db_file: Path | N
         conn.close()
     _echo_result(r)
     sys.exit(1 if r.outcome == "refused" else 0)
+
+
+def _parse_day(value: str | None, flag: str):
+    from datetime import date as _date
+
+    if value is None:
+        return None
+    try:
+        return _date.fromisoformat(value)
+    except ValueError:
+        _fail(f"{flag} {value!r} is not a date (YYYY-MM-DD)")
+
+
+@queue_group.command("applied")
+@click.argument("company_id")
+@click.option("--on", "on", default=None, metavar="YYYY-MM-DD",
+              help="The day the application went in through the company's own form "
+                   "(default today, UTC).")
+@click.option("--note", default=None,
+              help="Free text for your record. Never a person's name or contact.")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_applied(company_id: str, on: str | None, note: str | None, dry_run: bool,
+                  db_file: Path | None) -> None:
+    """Step 75: record that you applied for COMPANY_ID's candidate role (unblocks the draft)."""
+    from engine.outreach import applied as A
+    from engine.outreach import draft as Q
+
+    day = _parse_day(on, "--on")
+    conn = _conn_or_fail(db_file)
+    try:
+        r = A.applied(conn, company_id, on=day, note=note, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@queue_group.command("open")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Only pilot companies.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--port", type=click.IntRange(min=0, max=65535), default=None,
+              help="Port on 127.0.0.1 (default 8765; 0 picks a free one).")
+@click.option("--no-browser", is_flag=True, help="Print the URL; do not open a browser.")
+@click.option("--dry-run", is_flag=True, help="List what would be served; start no server.")
+@_teardowns_option
+@_sender_option
+@_site_option
+@_db_option
+def queue_open(company_id: str | None, pilot: bool, limit: int | None, port: int | None,
+               no_browser: bool, dry_run: bool, teardowns_dir: Path | None,
+               sender_file: Path | None, site_dir: Path | None, db_file: Path | None) -> None:
+    """Step 66: serve the review queue on 127.0.0.1 (approve, kill with a reason, edited)."""
+    from engine import db as dbmod
+    from engine.outreach import review as RV
+
+    conn = _conn_or_fail(db_file)
+    path = dbmod.db_path(db_file)
+    app = RV.QueueApp(lambda: dbmod.connect(path), pilot=pilot, company_id=company_id,
+                      limit=limit, teardowns=teardowns_dir, sender_file=sender_file,
+                      site=site_dir)
+    try:
+        ids = [c["company_id"] for c in app.companies(conn)]
+    finally:
+        conn.close()
+    if dry_run:
+        click.echo(f"would serve {len(ids)} teardown(s) on {RV.HOST}: " + (", ".join(ids) or "-"))
+        return
+    try:
+        httpd = RV.make_server(app, RV.DEFAULT_PORT if port is None else port)
+    except OSError as e:
+        _fail(f"cannot listen on {RV.HOST}:{port}: {e}")
+        return
+    click.echo(f"review queue: {len(ids)} teardown(s); local only, nothing is sent")
+    click.echo(f"open {app.url()}  (Ctrl-C to stop)")
+    if not no_browser:
+        import webbrowser
+
+        webbrowser.open(app.url())
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("stopped")
+    finally:
+        httpd.server_close()
+
+
+@queue_group.command("report")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Only pilot companies.")
+@_db_option
+def queue_report(company_id: str | None, pilot: bool, db_file: Path | None) -> None:
+    """Step 68: kill reasons, most-edited sections, review minutes, Gate 5.3."""
+    from engine.outreach import review as RV
+
+    conn = _conn_or_fail(db_file)
+    try:
+        for line in RV.report(conn, pilot=pilot, company_id=company_id):
+            click.echo(line)
+    finally:
+        conn.close()
+
+
+@queue_group.command("followups")
+@click.option("--today", "today", default=None, metavar="YYYY-MM-DD",
+              help="The day to list for (default today, UTC).")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Only pilot companies.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@_teardowns_option
+@_sender_option
+@_db_option
+def queue_followups(today: str | None, company_id: str | None, pilot: bool, limit: int | None,
+                    teardowns_dir: Path | None, sender_file: Path | None,
+                    db_file: Path | None) -> None:
+    """Step 71: threads due for touch 2 (day 4) or 3 (day 9), with the text to paste."""
+    from engine.outreach import followups as F
+
+    day = _parse_day(today, "--today") or datetime.now(UTC).date()
+    conn = _conn_or_fail(db_file)
+    try:
+        res = F.followups(conn, day, company_id=company_id, pilot=pilot, limit=limit,
+                          teardowns=teardowns_dir, sender_file=sender_file)
+        terminal = F.is_terminal()
+        if not res.due:
+            click.echo(f"no follow-up due on {day}")
+        for f in res.due:
+            how = ("press Reply in the touch-1 thread in Gmail and paste"
+                   if f.thread_channel == "email" else
+                   "send by hand on LinkedIn (a connection request with no pitch may stand in "
+                   "for touch 2)")
+            click.echo(f"{f.company_id}: touch {f.touch_no} due (day {f.day}; due {f.due_on}): "
+                       f"{how}")
+            if f.gap:
+                click.echo(f"    from secondary gap {f.gap}, claims {f.claims}")
+            for p in f.problems:
+                click.echo(f"    problem: {p}")
+            # {first_name} is filled only on a terminal, never into a file or a log
+            name = F.recipient_first_name(conn, f.company_id) if terminal else None
+            click.echo("    ---")
+            for line in F.fill_name(f.text, None if f.fallback else name).split("\n"):
+                click.echo(f"    {line}" if line else "")
+            click.echo("    ---")
+            if not f.fallback:
+                click.echo(f"    then: te queue followup-sent {f.company_id} --touch "
+                           f"{f.touch_no}")
+        for cid, n, due_on in res.upcoming:
+            click.echo(f"{cid}: touch {n} not due until {due_on}")
+        for cid, why in res.skipped:
+            click.echo(f"{cid}: skipped: {why}")
+    finally:
+        conn.close()
+
+
+@queue_group.command("followup-sent")
+@click.argument("company_id")
+@click.option("--touch", "touch_no", type=click.IntRange(min=1), required=True,
+              help="2 or 3. There is no fourth message.")
+@click.option("--channel", type=click.Choice(["email-reply", "linkedin"]), default=None,
+              help="Default: email-reply for an email thread, linkedin for a LinkedIn one.")
+@click.option("--at", "at", default=None, metavar="ISO",
+              help="When it was sent (ISO 8601, UTC unless an offset is given); default now.")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_followup_sent(company_id: str, touch_no: int, channel: str | None, at: str | None,
+                        dry_run: bool, db_file: Path | None) -> None:
+    """Step 71: a person sent follow-up touch 2 or 3 by hand; record it."""
+    from engine.outreach import draft as Q
+    from engine.outreach import followups as F
+
+    when = None
+    if at is not None:
+        try:
+            when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        except ValueError:
+            _fail(f"--at {at!r} is not an ISO 8601 time")
+            return
+    conn = _conn_or_fail(db_file)
+    try:
+        r = F.followup_sent(conn, company_id, touch_no, channel=channel, at=when,
+                            dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@queue_group.command("bounce")
+@click.argument("company_id")
+@click.option("--on", "on", default=None, metavar="YYYY-MM-DD",
+              help="The day it bounced (default today, UTC).")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_bounce(company_id: str, on: str | None, dry_run: bool, db_file: Path | None) -> None:
+    """Step 74: the latest sent email to COMPANY_ID bounced; suppress the address."""
+    from engine.outreach import bounces as B
+    from engine.outreach import draft as Q
+
+    day = _parse_day(on, "--on")
+    conn = _conn_or_fail(db_file)
+    try:
+        r = B.bounce(conn, company_id, on=day, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@queue_group.command("resume")
+@click.option("--reason", required=True,
+              help='What was done, e.g. "addresses re-verified".')
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_resume(reason: str, dry_run: bool, db_file: Path | None) -> None:
+    """Step 74: lift the stop that two bounces in one day put on drafting."""
+    from engine.outreach import bounces as B
+    from engine.outreach import draft as Q
+
+    conn = _conn_or_fail(db_file)
+    try:
+        r = B.resume(conn, reason, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
 
 
 # --- draft and quality (Steps 64-65) -------------------------------------------------
