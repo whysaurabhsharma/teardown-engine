@@ -59,11 +59,12 @@ def to_signal(slug: str, job: dict[str, Any], context: dict[str, Any], today: da
 
 
 async def fetch_board(
-    board_slug: str, guard: Guard | None = None, *, today: date | None = None
+    board_slug: str, guard: Guard | None = None, *, today: date | None = None,
+    fresh: bool = False,
 ) -> ats.BoardResult:
     return await ats.fetch_board(
         source=SOURCE, board_slug=board_slug, url=board_url(board_slug),
-        jobs_of=jobs_of, to_signal=to_signal, guard=guard, today=today,
+        jobs_of=jobs_of, to_signal=to_signal, guard=guard, today=today, fresh=fresh,
     )
 
 

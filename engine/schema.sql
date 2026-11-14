@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 14), for reading.
+-- engine/schema.sql: the current full schema (version 15), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -358,9 +358,14 @@ CREATE TABLE touches (
     outcome         TEXT,
     reply_at        TEXT,
     applied         INTEGER CHECK (applied IS NULL OR applied IN (0, 1)),
-    hubspot_deal_id TEXT,
+    hubspot_deal_id TEXT, draft_id TEXT, drafted_at TEXT, status TEXT
+    CHECK (status IS NULL OR status IN ('drafted', 'sent')),
     UNIQUE (company_id, touch_no)
 );
+-- touches.draft_id, drafted_at and status were added by 0015_touch_drafts
+-- (`te queue draft` / `te queue sent`, engine/outreach/draft.py): the Gmail
+-- draft id (NULL for a LinkedIn touch sent by hand), when the engine drafted
+-- it, and drafted | sent. The engine never sends; a person confirms a send.
 
 -- cost_usd was added by 0002_llm_cost; it is laid out the way SQLite stores
 -- an ALTER TABLE ADD COLUMN so this file matches the migrated database.

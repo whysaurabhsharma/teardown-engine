@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify capture extract people judge build backup verify
+.PHONY: test smoke signal careers resolve qualify capture extract people judge build queue backup verify
 
 test:
 	uv run pytest
@@ -45,3 +45,7 @@ judge:
 build:
 	uv run te teardown check --pilot
 	uv run te teardown render --pilot
+
+# Gmail drafts only; a person reads and sends each one (te queue sent <id>).
+queue:
+	uv run te queue draft --pilot

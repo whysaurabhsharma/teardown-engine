@@ -58,9 +58,11 @@ def board_urls(boards: Iterable[tuple[str, str]]) -> list[str]:
 
 
 async def collect_board(
-    source: str, slug: str, guard: Guard | None = None, *, today: date | None = None
+    source: str, slug: str, guard: Guard | None = None, *, today: date | None = None,
+    fresh: bool = False,
 ) -> ats.BoardResult:
-    return await COLLECTORS[source].fetch_board(slug, guard, today=today)
+    """One board through its collector; fresh=True bypasses today's cache."""
+    return await COLLECTORS[source].fetch_board(slug, guard, today=today, fresh=fresh)
 
 
 def store(conn: sqlite3.Connection, signals: Iterable[Signal]) -> int:

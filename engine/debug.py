@@ -60,7 +60,7 @@ JSON_COLUMNS: dict[str, tuple[str, ...]] = {
 }
 # Columns dropped because they derive from a contact.
 CONTACT_DERIVED: dict[str, tuple[str, ...]] = {
-    "touches": ("hubspot_deal_id",),
+    "touches": ("hubspot_deal_id", "draft_id"),  # draft_id: a draft to a contact (0015)
 }
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")

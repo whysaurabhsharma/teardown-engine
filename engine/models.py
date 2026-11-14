@@ -369,6 +369,9 @@ class Touch(Row):
     reply_at: datetime | None = None
     applied: bool | None = None
     hubspot_deal_id: str | None = None
+    draft_id: str | None = None  # Gmail draft id (0015); None for a LinkedIn touch
+    drafted_at: datetime | None = None  # when the engine drafted it (0015)
+    status: Literal["drafted", "sent"] | None = None  # 0015; a person sends
 
 
 class LlmCall(Row):

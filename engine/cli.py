@@ -2420,6 +2420,160 @@ def teardown_render(company_id: str | None, company_opt: str | None, pilot: bool
     sys.exit(1 if bad else 0)
 
 
+@main.group("queue")
+def queue_group() -> None:
+    """The send queue: approve, draft (Gmail drafts only), sent, done. Nothing is sent."""
+
+
+_site_option = click.option(
+    "--site-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+    help="Rendered pages folder (default: $TE_SITE_DIR or site/).")
+
+
+def _echo_result(r) -> None:
+    for w in r.warnings:
+        click.echo(f"{r.company_id}: warning: {w}")
+    head = f"{r.company_id}: {r.outcome}"
+    click.echo(head + (f": {r.detail}" if r.detail else ""))
+    for line in r.lines:
+        click.echo(f"    {line}" if line else "")
+
+
+@queue_group.command("approve")
+@click.argument("company_id")
+@click.option("--dry-run", is_flag=True, help="Run the checks and print; write nothing.")
+@_teardowns_option
+@_sender_option
+@_site_option
+@_db_option
+def queue_approve(company_id: str, dry_run: bool, teardowns_dir: Path | None,
+                  sender_file: Path | None, site_dir: Path | None, db_file: Path | None) -> None:
+    """After reading the page: move COMPANY_ID built -> approved (prints the email)."""
+    from engine.outreach import draft as Q
+
+    conn = _conn_or_fail(db_file)
+    try:
+        r = Q.approve(conn, company_id, teardowns=teardowns_dir, sender_file=sender_file,
+                      site=site_dir, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@queue_group.command("draft")
+@click.option("--company", "company_id", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every approved pilot company.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--dry-run", is_flag=True,
+              help="Local checks only: no request, no draft, no write.")
+@click.option("--role-checked", is_flag=True,
+              help="A person saw the post open today (for a signal no collector re-polls).")
+@_teardowns_option
+@_sender_option
+@_site_option
+@click.option("--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+@_db_option
+def queue_draft(company_id: str | None, pilot: bool, limit: int | None, dry_run: bool,
+                role_checked: bool, teardowns_dir: Path | None, sender_file: Path | None,
+                site_dir: Path | None, cache_dir: Path | None, db_file: Path | None) -> None:
+    """Recheck on send day, then make each approved company's touch-1 Gmail draft."""
+    from engine.guard.cache import Cache
+    from engine.outreach import draft as Q
+
+    if not company_id and not pilot:
+        _fail("give --company or --pilot")
+        return
+    conn = _conn_or_fail(db_file)
+    cache = Cache(cache_dir)
+    bad = 0
+    try:
+        ids = Q.select(conn, company_id=company_id, pilot=pilot, limit=limit)
+        if not ids:
+            click.echo("nothing approved to draft (te queue approve <company_id>)")
+        today = datetime.now(UTC).date()
+        w = Q.pace_warning(conn, ids, pilot=pilot, day=today)
+        if w:
+            click.echo(f"warning: {w}")
+
+        async def go() -> list:
+            checks = None if dry_run else Q.LiveChecks(cache)
+            drafter = None if dry_run else Q.default_drafter()
+            out = []
+            try:
+                for i in ids:
+                    out.append(await Q.draft_company(
+                        conn, i, checks=checks, cache=cache, drafter=drafter,
+                        teardowns=teardowns_dir, sender_file=sender_file, site=site_dir,
+                        dry_run=dry_run, role_checked=role_checked, today=today))
+            finally:
+                if checks is not None:
+                    await checks.aclose()
+            return out
+
+        for r in asyncio.run(go()):
+            _echo_result(r)
+            bad += r.outcome == "refused"
+    finally:
+        conn.close()
+    sys.exit(1 if bad else 0)
+
+
+@queue_group.command("sent")
+@click.argument("company_id")
+@click.option("--at", "at", default=None, metavar="ISO",
+              help="When it was sent (ISO 8601, UTC unless an offset is given); default now.")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_sent(company_id: str, at: str | None, dry_run: bool, db_file: Path | None) -> None:
+    """A person sent touch 1 by hand: record sent_at and move the company to sent."""
+    from engine.outreach import draft as Q
+
+    when = None
+    if at is not None:
+        try:
+            when = datetime.fromisoformat(at.replace("Z", "+00:00"))
+        except ValueError:
+            _fail(f"--at {at!r} is not an ISO 8601 time")
+            return
+    conn = _conn_or_fail(db_file)
+    try:
+        r = Q.sent(conn, company_id, at=when, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@queue_group.command("done")
+@click.argument("company_id")
+@click.option("--minutes", type=click.FloatRange(min=0, min_open=True, max=600), required=True,
+              help="Minutes the review of this teardown took (Step 55).")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def queue_done(company_id: str, minutes: float, dry_run: bool, db_file: Path | None) -> None:
+    """Record the review minutes for COMPANY_ID (teardowns.review_minutes)."""
+    from engine.outreach import draft as Q
+
+    conn = _conn_or_fail(db_file)
+    try:
+        r = Q.done(conn, company_id, minutes, dry_run=dry_run)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""

@@ -163,17 +163,19 @@ async def fetch_board(
     to_signal: ToSignal,
     guard: Guard | None = None,
     today: date | None = None,
+    fresh: bool = False,
 ) -> BoardResult:
     """Fetch one board through Guard and normalise its jobs.
 
     jobs_of(payload) -> (jobs, board context) raises BoardFormatError on a
     payload of the wrong shape. to_signal(slug, job, context, today) builds one
     Signal; a job it cannot place (no id, no title) is counted as skipped.
+    fresh=True bypasses today's cache (the send-day re-poll, Step 70).
     """
     slug = check_slug(board_slug)
     g = guard or default_guard()
     today = today or datetime.now(UTC).date()
-    r: FetchResult = await g.fetch(url, FETCH_KIND)
+    r: FetchResult = await g.fetch(url, FETCH_KIND, fresh=fresh)
     base = dict(
         source=source,
         board_slug=slug,

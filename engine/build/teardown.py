@@ -186,6 +186,18 @@ class Competitor(_M):
     confirmed: bool = False
 
 
+class Email(_M):
+    """The words of the first email that the human writes (TEARDOWN_SPEC "The
+    email, two variants"; filled by `te queue draft`, Step 54). Optional in the
+    file: the page renders without it, the draft is refused until it is there."""
+
+    observation: str  # one sentence; candidate: the specific thing the public pages
+    #                   show; adjacent: what the hire will need and what seems missing
+    slice: str  # the proof slice, named concretely: "built {slice} for you"
+    claims: list[int] = []  # the passing claims the observation traces to
+    subject: str | None = None  # adjacent only: the three-word observation
+
+
 class TeardownDoc(_M):
     version: str
     company_id: str
@@ -198,6 +210,7 @@ class TeardownDoc(_M):
     slice: Slice
     might_have_wrong: str
     competitors: list[Competitor] = []
+    email: Email | None = None
 
 
 def teardowns_dir(path: str | os.PathLike[str] | None = None) -> Path:
@@ -405,6 +418,15 @@ might_have_wrong: {_q('TODO: ' + cannot)}
 # in review (set confirmed: true).
 competitors:
 {comps or '  []'}
+
+# The first email (Step 54, `te queue draft`), filled into the spec's variant for
+# this offer type. Uncomment and write it once the page is done. Never a name:
+# the greeting's {{first_name}} is filled locally when the draft is made.
+# email:
+#   observation: "One sentence: what the public pages show."
+#   claims: []          # the passing claim indices it traces to
+#   slice: "the proof slice, named concretely"   # "...built <slice> for you"
+#   subject: "three word observation"            # adjacent only
 """
 
 
