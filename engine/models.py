@@ -555,8 +555,75 @@ class SendStop(Row):
     resume_reason: str | None = None
 
 
+ReplyType = Literal["positive", "question", "referral", "not_now", "negative", "optout"]
+CloseOutcome = Literal["hiring_process", "paid_project", "not_now", "no_fit", "other"]
+
+
+class Reply(Row):
+    """A reply a person logged with `te reply` (0019; Step 77). optout is set for an
+    optout reply, or an annoyed negative logged with --optout."""
+
+    TABLE: ClassVar[str] = "replies"
+
+    reply_id: int | None = None
+    company_id: NonBlank
+    touch_no: Annotated[int, Field(ge=1)]
+    type: ReplyType
+    replied_on: date
+    optout: bool = False
+    note: str | None = None  # never a person's name or contact
+    logged_at: str | None = None
+
+    @model_validator(mode="after")
+    def _optout_types(self) -> Reply:
+        if self.type == "optout" and not self.optout:
+            raise ValueError("an optout reply sets optout")
+        if self.optout and self.type not in ("optout", "negative"):
+            raise ValueError("only an optout or a negative reply opts out")
+        return self
+
+
+class Meeting(Row):
+    """A call actually held (`te meeting --held`, 0019; Step 77)."""
+
+    TABLE: ClassVar[str] = "meetings"
+
+    meeting_id: int | None = None
+    company_id: NonBlank
+    held_on: date
+    minutes: Annotated[float, Field(gt=0)] | None = None
+    note: str | None = None  # never a person's name or contact
+    logged_at: str | None = None
+
+
+class Close(Row):
+    """The outcome of a conversation and the next step (`te close`, 0019; Step 82)."""
+
+    TABLE: ClassVar[str] = "closes"
+
+    company_id: NonBlank
+    outcome: CloseOutcome
+    next_step: NonBlank  # never a person's name or contact
+    closed_on: date
+    logged_at: str | None = None
+
+
+class HubspotSync(Row):
+    """The HubSpot record a local record was written to (`te sync`, 0019; Steps 67, 76).
+    Ids and a hash of the properties only; never a contact value."""
+
+    TABLE: ClassVar[str] = "hubspot_sync"
+
+    object: Literal["company", "contact", "deal", "assoc"]
+    te_key: NonBlank
+    hubspot_id: NonBlank
+    props_sha256: str | None = None
+    synced_at: str | None = None
+
+
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
     SliceRow, SliceCompetitor, SliceArtifact, QualityCheck, Review, SendStop,
+    Reply, Meeting, Close, HubspotSync,
 )

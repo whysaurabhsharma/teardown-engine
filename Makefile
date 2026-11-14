@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify capture extract people judge build queue backup verify
+.PHONY: test smoke signal careers resolve qualify capture extract people judge build queue sync metrics backup verify
 
 test:
 	uv run pytest
@@ -49,3 +49,12 @@ build:
 # Gmail drafts only; a person reads and sends each one (te queue sent <id>).
 queue:
 	uv run te queue draft --pilot
+
+# HubSpot is the view; SQLite stays the system of record (Steps 67, 76).
+sync:
+	uv run te sync
+	uv run te backup
+
+# From the database alone, no network (Step 78, Gate 6.2).
+metrics:
+	uv run te metrics

@@ -2965,6 +2965,185 @@ def queue_resume(reason: str, dry_run: bool, db_file: Path | None) -> None:
     _echo_result(r)
 
 
+# --- replies, meetings, closes, metrics, sync, prep (Steps 67, 76-78, 80, 82) -----
+
+
+def _run_result(fn, db_file: Path | None) -> None:
+    from engine.outreach import draft as Q
+
+    conn = _conn_or_fail(db_file)
+    try:
+        r = fn(conn)
+    except Q.QueueError as e:
+        _fail(f"refused: {e}")
+        return
+    finally:
+        conn.close()
+    _echo_result(r)
+    sys.exit(1 if r.outcome == "refused" else 0)
+
+
+@main.command("reply")
+@click.argument("company_id")
+@click.option("--type", "reply_type", required=True,
+              type=click.Choice(["positive", "question", "referral", "not_now", "negative",
+                                 "optout"]),
+              help="What came back (Step 77).")
+@click.option("--note", default=None,
+              help="What they said, in your words. Never a person's name or contact.")
+@click.option("--on", "on", default=None, metavar="YYYY-MM-DD",
+              help="The day the reply arrived (default today, UTC).")
+@click.option("--optout", is_flag=True,
+              help="With --type negative: an annoyed no; suppress the address and domain.")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def reply_cmd(company_id: str, reply_type: str, note: str | None, on: str | None, optout: bool,
+              dry_run: bool, db_file: Path | None) -> None:
+    """Step 77: log a reply on COMPANY_ID's latest sent touch (sent -> replied).
+    An opt-out suppresses the address and the domain the same day (Step 72)."""
+    from engine.outreach import replies as RP
+
+    day = _parse_day(on, "--on")
+    _run_result(lambda conn: RP.reply(conn, company_id, reply_type, note=note, on=day,
+                                      optout=optout, dry_run=dry_run), db_file)
+
+
+@main.command("meeting")
+@click.argument("company_id")
+@click.option("--held", is_flag=True, help="Required: the call actually happened.")
+@click.option("--on", "on", default=None, metavar="YYYY-MM-DD",
+              help="The day of the call (default today, UTC).")
+@click.option("--minutes", type=click.FloatRange(min=0, min_open=True, max=600), default=None,
+              help="How long the call took.")
+@click.option("--note", default=None, help="Never a person's name or contact.")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def meeting_cmd(company_id: str, held: bool, on: str | None, minutes: float | None,
+                note: str | None, dry_run: bool, db_file: Path | None) -> None:
+    """Step 77: log a call held with COMPANY_ID (-> meeting). Needs --held."""
+    from engine.outreach import replies as RP
+
+    day = _parse_day(on, "--on")
+    _run_result(lambda conn: RP.meeting(conn, company_id, held=held, on=day, minutes=minutes,
+                                        note=note, dry_run=dry_run), db_file)
+
+
+@main.command("close")
+@click.argument("company_id")
+@click.option("--outcome", required=True,
+              type=click.Choice(["hiring_process", "paid_project", "not_now", "no_fit",
+                                 "other"]),
+              help="How the conversation ended (Step 82).")
+@click.option("--next", "next_step", required=True,
+              help="The next step, or 'none'. Never a person's name or contact.")
+@click.option("--on", "on", default=None, metavar="YYYY-MM-DD",
+              help="The day (default today, UTC).")
+@click.option("--dry-run", is_flag=True, help="Print what would be recorded.")
+@_db_option
+def close_cmd(company_id: str, outcome: str, next_step: str, on: str | None, dry_run: bool,
+              db_file: Path | None) -> None:
+    """Step 82: log the conversation's outcome and next step (-> closed)."""
+    from engine.outreach import replies as RP
+
+    day = _parse_day(on, "--on")
+    _run_result(lambda conn: RP.close(conn, company_id, outcome, next_step, on=day,
+                                      dry_run=dry_run), db_file)
+
+
+@main.command("metrics")
+@click.option("--by", "by", default=None,
+              type=click.Choice(["segment", "offer_type", "gap", "slice", "role", "channel",
+                                 "made_by"]),
+              help="Show only this split (default: every split).")
+@click.option("--json", "as_json", is_flag=True, help="Print JSON.")
+@click.option("--detail", is_flag=True,
+              help="Add company ids per funnel stage (to a terminal only).")
+@_db_option
+def metrics_cmd(by: str | None, as_json: bool, detail: bool, db_file: Path | None) -> None:
+    """Step 78: the campaign from the database alone (no network). Aggregate only."""
+    from engine.outreach import metrics as MX
+
+    if detail and not _stdout_is_terminal():
+        _fail("--detail lists company ids and prints to a terminal only, never to a file or "
+              "a pipe")
+        return
+    conn = _conn_or_fail(db_file)
+    try:
+        m = MX.compute(conn, by=by, detail=detail)
+    finally:
+        conn.close()
+    if as_json:
+        click.echo(MX.format_json(m))
+    else:
+        for line in MX.format_text(m):
+            click.echo(line)
+
+
+@main.command("sync")
+@click.option("--company", "company_id", default=None, help="Only this company.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most n companies.")
+@click.option("--pilot", is_flag=True, help="Only the pilot companies.")
+@click.option("--dry-run", is_flag=True,
+              help="Print what would be written; needs no token and sends nothing.")
+@_db_option
+def sync_cmd(company_id: str | None, limit: int | None, pilot: bool, dry_run: bool,
+             db_file: Path | None) -> None:
+    """Steps 67, 76: upsert company, contact and one deal per company into HubSpot.
+    Idempotent; SQLite stays the system of record."""
+    from engine.guard import hubspot as HS
+    from engine.guard.budget import BudgetExceeded
+    from engine.outreach import hubspot_sync as SY
+
+    conn = _conn_or_fail(db_file)
+    try:
+        ids = SY.select(conn, company_id=company_id, pilot=pilot, limit=limit)
+        if not ids:
+            click.echo("nothing to sync: no company has a touch drafted or sent")
+            return
+        client = None
+        if not dry_run:
+            try:
+                client = HS.Client.from_env()
+            except HS.NotConfigured as e:
+                _fail(f"sync: {e}")
+                return
+        changed = 0
+        try:
+            for r in SY.sync_iter(conn, client, ids, dry_run=dry_run):
+                changed += r.changed
+                click.echo(f"{r.company_id}: {r.stage}: {'; '.join(r.actions)}")
+        except (HS.HubSpotError, BudgetExceeded) as e:
+            _fail(f"sync stopped: {e} (re-run te sync; finished companies are stored)")
+            return
+        verb = "would change" if dry_run else "changed"
+        click.echo(f"{len(ids)} companies; {changed} {verb}")
+    finally:
+        conn.close()
+
+
+@main.command("prep")
+@click.argument("company_id")
+@click.option("--out-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="Folder (default: $TE_PREP_DIR or data/prep).")
+@_teardowns_option
+@_db_option
+def prep_cmd(company_id: str, out_dir: Path | None, teardowns_dir: Path | None,
+             db_file: Path | None) -> None:
+    """Step 80: write the meeting prep sheet for COMPANY_ID (no network, no model)."""
+    from engine.build.teardown import TeardownError
+    from engine.outreach import prep as P
+
+    conn = _conn_or_fail(db_file)
+    try:
+        path = P.write(conn, company_id, out_dir=out_dir, teardowns=teardowns_dir)
+    except (P.PrepError, TeardownError) as e:
+        _fail(f"prep: {e}")
+        return
+    finally:
+        conn.close()
+    click.echo(f"{company_id}: prep sheet {path}")
+
+
 # --- draft and quality (Steps 64-65) -------------------------------------------------
 
 

@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 18), for reading.
+-- engine/schema.sql: the current full schema (version 19), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -555,4 +555,52 @@ CREATE TABLE send_stops (
     resumed_at    TEXT,
     resume_reason TEXT,
     CHECK ((resumed_at IS NULL) = (resume_reason IS NULL))
+);
+
+-- replies, meetings, closes and hubspot_sync were added by 0019_replies_meetings_sync
+-- (Steps 67, 76, 77, 82): replies logged by hand (`te reply`), calls held
+-- (`te meeting --held`), the conversation outcome (`te close`) and the HubSpot
+-- ids `te sync` stores. See the migration for each column.
+CREATE TABLE replies (
+    reply_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  TEXT NOT NULL REFERENCES companies(company_id),
+    touch_no    INTEGER NOT NULL CHECK (touch_no >= 1),
+    type        TEXT NOT NULL CHECK (type IN (
+                    'positive', 'question', 'referral', 'not_now', 'negative', 'optout')),
+    replied_on  TEXT NOT NULL,
+    optout      INTEGER NOT NULL DEFAULT 0 CHECK (optout IN (0, 1)),
+    note        TEXT,
+    logged_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE (company_id, touch_no, type, replied_on),
+    CHECK (type <> 'optout' OR optout = 1),
+    CHECK (optout = 0 OR type IN ('optout', 'negative'))
+);
+CREATE INDEX replies_company ON replies(company_id);
+
+CREATE TABLE meetings (
+    meeting_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  TEXT NOT NULL REFERENCES companies(company_id),
+    held_on     TEXT NOT NULL,
+    minutes     REAL CHECK (minutes IS NULL OR minutes > 0),
+    note        TEXT,
+    logged_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE (company_id, held_on)
+);
+
+CREATE TABLE closes (
+    company_id  TEXT PRIMARY KEY REFERENCES companies(company_id),
+    outcome     TEXT NOT NULL CHECK (outcome IN (
+                    'hiring_process', 'paid_project', 'not_now', 'no_fit', 'other')),
+    next_step   TEXT NOT NULL CHECK (length(trim(next_step)) > 0),
+    closed_on   TEXT NOT NULL,
+    logged_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
+CREATE TABLE hubspot_sync (
+    object       TEXT NOT NULL CHECK (object IN ('company', 'contact', 'deal', 'assoc')),
+    te_key       TEXT NOT NULL CHECK (length(trim(te_key)) > 0),
+    hubspot_id   TEXT NOT NULL CHECK (length(trim(hubspot_id)) > 0),
+    props_sha256 TEXT,
+    synced_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    PRIMARY KEY (object, te_key)
 );
