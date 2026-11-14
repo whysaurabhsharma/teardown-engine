@@ -44,8 +44,8 @@ spec's renderer rules and the quality gates that can be decided on this file:
                     "Not found" line rests on an artifact still not_found, a
                     quoted line on one still ok
   quote_length      every quote (evidence and slice) under 25 words
-  slice_row         one to ten rows; each row a source URL (http/https) and a
-                    quote; cells match the columns; an empty cell reads
+  slice_row         one to ten rows; each row a source URL (http/https, or
+                    dns:<domain> for public DNS records) and a quote; cells match the columns; an empty cell reads
                     "not found"
   contact_value     no value from the contacts table (name or name part, title,
                     email, LinkedIn URL) appears in the file; the message never
@@ -53,8 +53,14 @@ spec's renderer rules and the quality gates that can be decided on this file:
   placeholder       no {placeholder} left on the page: the page is shared by
                     link and carries no recipient name; {first_name} belongs in
                     the email (Step 54)
-  competitor        a competitor name (from the competitors list, or a
-                    named_competitors fact) appears only when marked confirmed
+  competitor        a competitor name (from the competitors list, a
+                    named_competitors fact or slice_competitors) appears only
+                    when confirmed; one `te slice competitors` recorded as not
+                    confirmed fails even if the file says confirmed: true
+
+`init` pre-fills section 6 from the slice `te slice build` selected (Steps
+60-63) when there is one, every row with its url and quote, and the
+competitors list with the confirmations `te slice competitors` recorded.
 
 No network and no model call.
 """
@@ -242,6 +248,8 @@ class Context:
     verdict: Any  # verify.VerifierVerdict | None
     arts: dict[str, sqlite3.Row]  # kind -> artifacts row
     competitors: list[str] = field(default_factory=list)  # named_competitors facts
+    slice: Any = None  # slices.store.Stored: the selected proof slice, or None
+    competitor_choices: dict[str, bool] = field(default_factory=dict)  # name -> confirmed
 
     @property
     def homepage_url(self) -> str | None:
@@ -279,8 +287,10 @@ def load_context(conn: sqlite3.Connection, company_id: str) -> Context:
         v = r["value"]
         if v and v != "none" and v not in comps:
             comps.append(v)
+    from engine.build.slices import store as SS
+
     return Context(company_id, c["name"], c["status"], role, offer, d, claims, key, verdict,
-                   arts, comps)
+                   arts, comps, SS.selected(conn, company_id), SS.confirmation(conn, company_id))
 
 
 def claim_problem(ctx: Context, i: int) -> str | None:
@@ -349,6 +359,33 @@ def _default_evidence(claims: list[Claim]) -> list[int]:
     return sorted(picked)
 
 
+_SLICE_TODO = """slice:                  # section 6, the proof slice: up to ten rows, each with a source
+  title: "TODO: what the slice is, named concretely"
+  columns: ["TODO: column 1", "TODO: column 2"]
+  rows:                 # every row: cells (one per column; "not found" when no source), url, quote
+    - cells: ["TODO", "not found"]
+      url: "TODO: https://..."
+      quote: "TODO: the quoted line, under 25 words"
+"""
+
+
+def slice_block(ctx: Context) -> str:
+    """Section 6: the slice `te slice build` selected, else TODO placeholders."""
+    st = ctx.slice
+    if st is None or not st.rows:
+        return _SLICE_TODO
+    rows = "\n".join(
+        f"    - cells: [{', '.join(_q(c) for c in r['cells'])}]\n"
+        f"      url: {_q(r['url'])}\n      quote: {_q(r['quote'])}"
+        for r in st.rows[:SLICE_MAX_ROWS])
+    return (f"slice:                  # section 6, from te slice build: {st.kind} {st.version}.\n"
+            "                        # Every row keeps its url and quote; edit cells, never "
+            "invent a source.\n"
+            f"  title: {_q(st.title)}\n"
+            f"  columns: [{', '.join(_q(c) for c in st.columns)}]\n"
+            f"  rows:\n{rows}\n")
+
+
 def skeleton(ctx: Context, today: date) -> str:
     d = ctx.diagnosis
     assert d is not None
@@ -358,7 +395,9 @@ def skeleton(ctx: Context, today: date) -> str:
     claims = "\n".join(_claim_comment(ctx, i, c) for i, c in enumerate(ctx.claims))
     need = " ".join((d["need"] or "").split())
     cannot = " ".join((d["cannot_see"] or "").split())
-    comps = "\n".join(f"  - {{name: {_q(n)}, confirmed: false}}" for n in ctx.competitors)
+    names = list(dict.fromkeys([*ctx.competitor_choices, *ctx.competitors]))
+    comps = "\n".join(f"  - {{name: {_q(n)}, confirmed: "
+                      f"{str(ctx.competitor_choices.get(n, False)).lower()}}}" for n in names)
     offer = ctx.offer_type if ctx.offer_type in ("candidate", "adjacent") else \
         "TODO: candidate or adjacent"
     return f"""# Teardown for {ctx.company_id}: written by `te teardown init`, yours to edit.
@@ -402,20 +441,13 @@ build:                  # section 5: exactly three items, each a system componen
   - "TODO: component 2"
   - "TODO: component 3"
 
-slice:                  # section 6, the proof slice: up to ten rows, each with a source
-  title: "TODO: what the slice is, named concretely"
-  columns: ["TODO: column 1", "TODO: column 2"]
-  rows:                 # every row: cells (one per column; "not found" when no source), url, quote
-    - cells: ["TODO", "not found"]
-      url: "TODO: https://..."
-      quote: "TODO: the quoted line, under 25 words"
-
+{slice_block(ctx)}
 # Section 7, at most 40 words: name the specific thing that cannot be seen.
 # Suggested from the diagnosis's cannot_see; edit it and remove TODO.
 might_have_wrong: {_q('TODO: ' + cannot)}
 
-# Competitors named on their pages. A name appears on the page only once confirmed
-# in review (set confirmed: true).
+# Competitors named on their pages or chosen for the slice. A name appears on the
+# page only once confirmed in review (te slice competitors records the yes).
 competitors:
 {comps or '  []'}
 
@@ -763,8 +795,8 @@ def check(conn: sqlite3.Connection, company_id: str, *, directory: Path | None =
     if not doc.slice.columns:
         fail("slice_row", "the slice has no columns")
     for k, r in enumerate(rows):
-        if not r.url or not re.match(r"^https?://\S+$", r.url.strip()):
-            fail("slice_row", f"slice row {k + 1} has no source URL (http or https)")
+        if not r.url or not re.match(r"^(?:https?://|dns:)\S+$", r.url.strip()):
+            fail("slice_row", f"slice row {k + 1} has no source URL (http, https or dns:)")
         if not r.quote or not r.quote.strip():
             fail("slice_row", f"slice row {k + 1} has no quote")
         if len(r.cells) != len(doc.slice.columns):
@@ -798,8 +830,12 @@ def check(conn: sqlite3.Connection, company_id: str, *, directory: Path | None =
                 fail("placeholder", f"{m} is left unfilled")
 
     # competitors
-    confirmed = {c.name.lower() for c in doc.competitors if c.confirmed}
-    names = {c.name for c in doc.competitors} | set(ctx.competitors)
+    # The database holds the review's yes: a name `te slice competitors` recorded as
+    # not confirmed fails even when the file says confirmed: true.
+    db_no = {n.lower() for n, ok in ctx.competitor_choices.items() if not ok}
+    confirmed = ({c.name.lower() for c in doc.competitors if c.confirmed}
+                 | {n.lower() for n, ok in ctx.competitor_choices.items() if ok}) - db_no
+    names = {c.name for c in doc.competitors} | set(ctx.competitors) | set(ctx.competitor_choices)
     for name in sorted(names):
         if name.lower() in confirmed or not name.strip():
             continue

@@ -417,7 +417,72 @@ class Suppression(Row):
     added_at: str | None = None
 
 
+class SliceRow(Row):
+    """A proof slice (0016; engine/build/slices/). Every row in `rows` carries a
+    url and a quote; the builders drop any row without both before storage."""
+
+    TABLE: ClassVar[str] = "slices"
+    JSON_FIELDS: ClassVar[frozenset[str]] = frozenset({"columns", "rows", "dropped", "meta"})
+
+    slice_id: int | None = None
+    company_id: NonBlank
+    kind: Literal["icp_accounts", "funnel_compare", "role_funnel", "dns_inventory"]
+    builder_version: NonBlank
+    outcome: Literal["ok", "failed"]
+    reason: str | None = None
+    title: NonBlank
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    dropped: list[dict[str, Any]] = Field(default_factory=list)
+    meta: dict[str, Any] = Field(default_factory=dict)
+    inputs_key: str | None = None
+    selected: bool = False
+    fetches: Annotated[int, Field(ge=0)] = 0
+    searches: Annotated[int, Field(ge=0)] = 0
+    built_at: str | None = None
+
+
+class SliceCompetitor(Row):
+    """A competitor funnel_compare compares against (0016); confirmed only after a
+    person said yes in `te slice competitors`."""
+
+    TABLE: ClassVar[str] = "slice_competitors"
+
+    company_id: NonBlank
+    name: NonBlank
+    domain: str | None = None
+    source: Literal["named_competitors", "alternatives_search", "manual"]
+    evidence_url: str | None = None
+    evidence_quote: str | None = None
+    rank: Annotated[int, Field(ge=1)]
+    confirmed: bool = False
+    confirmed_at: str | None = None
+
+
+class SliceArtifact(Row):
+    """A page fetched for a slice (0016), kept apart from the company's own bundle."""
+
+    TABLE: ClassVar[str] = "slice_artifacts"
+
+    slice_artifact_id: int | None = None
+    company_id: NonBlank
+    slice_kind: NonBlank
+    subject_domain: NonBlank
+    kind: NonBlank
+    url: NonBlank
+    outcome: Outcome
+    fetched_at: str
+    status: int | None = None
+    body_sha256: str | None = None
+    fetcher: Literal["http", "none"] | None = None
+    detail: str | None = None
+    text_sha256: str | None = None
+    structure_sha256: str | None = None
+    extractor_version: str | None = None
+
+
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
+    SliceRow, SliceCompetitor, SliceArtifact,
 )

@@ -2420,6 +2420,160 @@ def teardown_render(company_id: str | None, company_opt: str | None, pilot: bool
     sys.exit(1 if bad else 0)
 
 
+# --- slice (Steps 60-63) -------------------------------------------------------------
+
+_cache_option = click.option(
+    "--cache-dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+    help="Cache directory (default: $TE_CACHE_DIR or data/cache).")
+
+
+@main.group("slice")
+def slice_group() -> None:
+    """Proof slices (Steps 60-63): build, show, and confirm competitors."""
+
+
+@slice_group.command("build")
+@click.argument("company_id", required=False)
+@click.option("--company", "company_opt", default=None, help="Only this company_id.")
+@click.option("--pilot", is_flag=True, help="Every pilot company with a diagnosis.")
+@click.option("--limit", type=click.IntRange(min=1), default=None, help="At most N companies.")
+@click.option("--dry-run", is_flag=True, help="Print what would be built; no request, no write.")
+@click.option("--rebuild", is_flag=True,
+              help="Rebuild a network slice even when stored with the same inputs.")
+@_cache_option
+@_db_option
+def slice_build(company_id: str | None, company_opt: str | None, pilot: bool, limit: int | None,
+                dry_run: bool, rebuild: bool, cache_dir: Path | None,
+                db_file: Path | None) -> None:
+    """Build each company's proof slice: the gap's primary slice, else role_funnel.
+
+    A row without a source URL and a quote is dropped before storage. When both
+    slices fail, the company is held for review (slice_thin). No model calls.
+    """
+    from engine.build.slices import run as SR
+    from engine.guard.cache import Cache
+    from engine.guard.http import GuardConfigError
+
+    conn = _conn_or_fail(db_file)
+    try:
+        try:
+            ids = SR.select_companies(conn, company_id=company_id or company_opt, pilot=pilot,
+                                      limit=limit)
+        except SR.SliceError as e:
+            _fail(str(e))
+            return
+        rt = SR.default_runtime(Cache(cache_dir))
+        try:
+            rep = asyncio.run(SR.run(conn, rt, ids, rebuild=rebuild, dry_run=dry_run))
+        except GuardConfigError as e:
+            _fail(str(e))
+            return
+    finally:
+        conn.close()
+    counts: dict[str, int] = {}
+    for r in rep.results:
+        counts[r.outcome] = counts.get(r.outcome, 0) + 1
+        head = f"{r.company_id}: {r.outcome}"
+        if r.gap:
+            head += f" (gap {r.gap}, primary {r.primary}"
+            head += f", selected {r.selected})" if r.selected else ")"
+        click.echo(head)
+        for line in r.lines:
+            click.echo(f"  {line}")
+    click.echo("slices: " + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none")
+               + f"; model calls {rep.model_calls}" + ("; dry run, nothing written" if dry_run
+                                                        else ""))
+    if any(r.outcome == "refused" for r in rep.results) and (company_id or company_opt):
+        sys.exit(1)
+
+
+@slice_group.command("show")
+@click.argument("company_id")
+@_db_option
+def slice_show(company_id: str, db_file: Path | None) -> None:
+    """Print the stored slices, their rows with sources, and dropped rows."""
+    from engine.build.slices import store as S
+
+    conn = _conn_or_fail(db_file)
+    try:
+        stored = S.slices(conn, company_id)
+        comps = S.competitors(conn, company_id)
+    finally:
+        conn.close()
+    if not stored and not comps:
+        click.echo(f"{company_id}: no slice stored; run te slice build {company_id}")
+        return
+    for st in stored:
+        mark = " [selected]" if st.selected else ""
+        state = f"ok, {len(st.rows)} rows" if st.ok else f"failed: {st.reason}"
+        click.echo(f"{st.kind} {st.version}{mark}: {state}; built {st.built_at}; "
+                   f"{st.fetches} fetches, {st.searches} searches")
+        click.echo(f"  {st.title}")
+        click.echo("  columns: " + " | ".join(st.columns))
+        for i, row in enumerate(st.rows, start=1):
+            click.echo(f"  [{i}] " + " | ".join(row["cells"]))
+            click.echo(f"      url: {row['url']}")
+            click.echo(f"      quote: {json.dumps(row['quote'], ensure_ascii=False)}")
+        for d in st.dropped:
+            click.echo(f"  dropped: {' | '.join(d.get('cells') or [])}: {d.get('why')}")
+    if comps:
+        click.echo("competitors:")
+        for c in comps:
+            click.echo(f"  {c.rank}. {c.name} {c.domain or '(no domain)'} [{c.source}] "
+                       + ("confirmed " + (c.confirmed_at or "") if c.confirmed
+                          else "not confirmed"))
+
+
+@slice_group.command("competitors")
+@click.argument("company_id")
+@click.option("--set", "sets", multiple=True, metavar="NAME=DOMAIN",
+              help="Add a competitor, or give one its domain. Repeatable.")
+@click.option("--yes", is_flag=True, help="Confirm without asking (for scripts).")
+@click.option("--dry-run", is_flag=True, help="Show the choice; no search, no write.")
+@_cache_option
+@_db_option
+def slice_competitors(company_id: str, sets: tuple[str, ...], yes: bool, dry_run: bool,
+                      cache_dir: Path | None, db_file: Path | None) -> None:
+    """Show the two competitors funnel_compare would compare against and wait for
+    your yes. Nothing about a competitor is fetched before it."""
+    from engine.build.slices import run as SR
+    from engine.guard.cache import Cache
+
+    conn = _conn_or_fail(db_file)
+    try:
+        rt = SR.default_runtime(Cache(cache_dir))
+        try:
+            ch = asyncio.run(SR.competitors(conn, rt, company_id, sets=sets, dry_run=dry_run))
+        except SR.SliceError as e:
+            _fail(str(e))
+            return
+        click.echo(f"{company_id}: competitors ({ch.note})")
+        for c in ch.competitors:
+            click.echo(f"  {c.rank}. {c.name}  {c.domain or '(no domain)'}  [{c.source}]"
+                       + ("  confirmed" if c.confirmed else ""))
+            if c.evidence_quote:
+                click.echo(f"     quote: {json.dumps(c.evidence_quote, ensure_ascii=False)}")
+            if c.evidence_url:
+                click.echo(f"     from: {c.evidence_url}")
+        if not ch.ready:
+            _fail(f"not ready: {ch.why}")
+            return
+        if dry_run:
+            click.echo("dry run: nothing confirmed, nothing written")
+            return
+        if all(c.confirmed for c in ch.competitors[:2]):
+            click.echo("already confirmed; te slice build " + company_id)
+            return
+        if not yes and not click.confirm("Compare against these two? Nothing is fetched "
+                                         "before you say yes", default=False):
+            click.echo("not confirmed; nothing captured")
+            sys.exit(1)
+        n = SR.confirm(conn, company_id)
+        click.echo(f"confirmed {n}; now te slice build {company_id}")
+    finally:
+        conn.close()
+
+
 @main.group("queue")
 def queue_group() -> None:
     """The send queue: approve, draft (Gmail drafts only), sent, done. Nothing is sent."""
