@@ -4,7 +4,7 @@ Writes one company's record to debug/<company_id>/ so a session can read it
 without touching data/:
 
     record.json            company row, signals, facts, diagnoses, teardowns,
-                           touches and artifact rows
+                           touches, replies, meetings, closes and artifact rows
     artifacts/<id>.txt     each artifact's text
     artifacts/<id>.structure.json
                            its links, buttons, forms and the like (Step 35),
@@ -14,7 +14,10 @@ Contacts rows are never read into the output. Every value from that company's
 contacts rows (name, title, email, source_url, linkedin_url, and each name part
 of 3+ chars) is replaced with "[redacted]" wherever it appears, case-insensitive and
 whole-word, using the same matching as the model gateway's contacts guard.
-Touches lose hubspot_deal_id (it links to a person in HubSpot).
+Touches lose hubspot_deal_id (it links to a person in HubSpot). Replies,
+meetings and closes (0019) are redacted the same way; their free-text notes
+pass through the same contact redaction. hubspot_sync is never exported: it
+holds HubSpot record ids, one of them a contact's (EXCLUDED_TABLES).
 
 An artifact's text is its extracted text (Step 35, engine/capture/
 extract_text.py), the same text quotes are checked against. An artifact not
@@ -42,7 +45,7 @@ from engine.llm.gateway import contact_pattern, contact_values
 
 DEFAULT_DEBUG_DIR = Path("debug")
 REDACTED = "[redacted]"
-EXPORT_VERSION = "debug-export-v1"
+EXPORT_VERSION = "debug-export-v2"
 RAW_TEXT_NOTE = "raw body decoded as utf-8 (errors replaced); no text extraction yet"
 EXTRACTED_NOTE = "extracted text ({version})"
 
@@ -53,8 +56,13 @@ TABLES: dict[str, str] = {
     "diagnoses": "diagnosis_id",
     "teardowns": "teardown_id",
     "touches": "touch_id",
+    "replies": "reply_id",
+    "meetings": "meeting_id",
+    "closes": "company_id",
     "artifacts": "artifact_id",
 }
+# Tables with company data that are deliberately left out of the export.
+EXCLUDED_TABLES = ("hubspot_sync", "contacts")
 JSON_COLUMNS: dict[str, tuple[str, ...]] = {
     "diagnoses": ("claims", "secondary", "faithfulness"),
 }

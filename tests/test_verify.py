@@ -143,7 +143,8 @@ def test_verify_command_ok(repo: Path, tmp_path: Path) -> None:
                                        "--db", str(tmp_path / "missing.db")])
     assert result.exit_code == 0, result.output
     lines = result.output.strip().splitlines()
-    assert [ln.split()[0] for ln in lines] == ["tests", "schema", "tracked", "domains"]
+    assert [ln.split()[0] for ln in lines] == ["tests", "schema", "tracked", "domains",
+                                               "history", "secrets", "leaks", "known"]
     assert all(ln.split()[1] == "OK" for ln in lines)
 
 
@@ -153,8 +154,10 @@ def test_verify_command_fails_with_a_line_per_check(repo: Path, conn, db_file: P
     result = CliRunner().invoke(main, ["verify", "--skip-tests", "--root", str(repo),
                                        "--db", str(db_file)])
     assert result.exit_code == 1
-    status = {ln.split()[0]: ln.split()[1] for ln in result.output.strip().splitlines()}
-    assert status == {"tests": "OK", "schema": "OK", "tracked": "FAIL", "domains": "FAIL"}
+    status = {ln.split()[0]: ln.split()[1] for ln in result.output.strip().splitlines()
+              if not ln.startswith(" ")}
+    assert status == {"tests": "OK", "schema": "OK", "tracked": "FAIL", "domains": "FAIL",
+                      "history": "OK", "secrets": "OK", "leaks": "FAIL", "known": "OK"}
 
 
 def test_tests_check_reports_failure(tmp_path: Path) -> None:
@@ -163,3 +166,100 @@ def test_tests_check_reports_failure(tmp_path: Path) -> None:
     (root / "tests" / "test_x.py").write_text("def test_x():\n    assert False\n", encoding="utf-8")
     r = verify.check_tests(root)
     assert not r.ok and "failed" in r.detail
+
+
+# --- Step 87: history, secrets, leaks, the known item --------------------------------
+
+def _commit(root: Path, message: str = "c") -> None:
+    _git(root, "-c", "user.name=Test", "-c", "user.email=test@invented.example",
+         "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", message)
+
+
+@pytest.fixture
+def history(repo: Path) -> Path:
+    """A repo with one clean commit."""
+    _commit(repo, "initial")
+    return repo
+
+
+def _leak_then_delete(root: Path, rel: str, text: str) -> None:
+    _track(root, rel, text)
+    _commit(root, "add")
+    _git(root, "rm", "-q", rel)
+    _commit(root, "remove")
+
+
+def test_history_check_clean_and_dirty(history: Path) -> None:
+    assert verify.check_history_dirs(history).ok
+    _leak_then_delete(history, "site/index.html", "x\n")
+    r = verify.check_history_dirs(history)
+    assert not r.ok and "2 commit(s)" in r.detail
+    assert verify.check_tracked(history).ok  # gone from the tree, still in history
+
+
+def test_secrets_check_finds_env_files_and_keys_in_history(history: Path) -> None:
+    assert verify.check_secrets(history).ok
+    _leak_then_delete(history, "config/.env.local", "A=1\n")
+    r = verify.check_secrets(history)
+    assert not r.ok and "config/.env.local env_or_keys_file" in r.detail
+    fake = "sk-" + "ant-" + "x" * 30  # built at runtime so this file holds no key shape
+    _leak_then_delete(history, "engine/conf.py", f"KEY = '{fake}'\n")
+    r = verify.check_secrets(history)
+    assert "engine/conf.py:1 anthropic_key" in r.detail and fake not in r.detail
+
+
+def test_leaks_in_history_fail_and_never_print_values(history: Path, conn,
+                                                      db_file: Path) -> None:
+    add_company(conn, "zentrico-io", name="Zentrico", domain="zentrico.example")
+    with conn:
+        conn.execute("INSERT INTO contacts (company_id, name, title, email) VALUES "
+                     "('zentrico-io', 'Odran Pellew', 'Head of Growth', 'odran@zentrico.example')")
+    assert verify.check_leaks(history, db_file).ok
+    _leak_then_delete(history, "notes/old.md", "intro\nwrite to odran@zentrico.example\n")
+    r = verify.check_leaks(history, db_file)
+    assert not r.ok
+    assert "notes/old.md:2 contact_email" in r.detail and "notes/old.md:2 domain" in r.detail
+    for value in ("zentrico.example", "odran", "Odran", "Pellew"):
+        assert value not in r.detail
+    assert all(value not in w for w in r.warnings for value in ("Zentrico", "odran"))
+
+
+def test_names_warn_unless_public(history: Path, conn, db_file: Path) -> None:
+    add_company(conn, "zentrico-io", name="Zentrico", domain="zentrico.example")
+    _track(history, "docs/story.md", "We wrote to Zentrico in week one.\n")
+    _commit(history, "story")
+    r = verify.check_leaks(history, db_file)
+    assert r.ok and r.warnings
+    assert any("docs/story.md:1 company_name" in w for w in r.warnings)
+    p = verify.check_leaks(history, db_file, public=True)
+    assert not p.ok and "docs/story.md:1 company_name" in p.detail and "Zentrico" not in p.detail
+
+
+def test_hand_notes_is_a_known_item_failing_only_with_public(history: Path, conn,
+                                                             db_file: Path) -> None:
+    assert verify.check_known(history).ok and not verify.check_known(history).warnings
+    add_company(conn, "zentrico-io", name="Zentrico", domain="zentrico.example")
+    _track(history, verify.HAND_NOTES, "# Hand notes\nZentrico, zentrico.example\n")
+    _commit(history, "hand notes")
+    k = verify.check_known(history)
+    assert k.ok and k.warnings and "known item" in k.warnings[0]
+    leaks = verify.check_leaks(history, db_file)
+    assert leaks.ok and "HAND_NOTES.md (see known)" in leaks.detail  # not a failure
+    assert not verify.check_known(history, public=True).ok
+    r = CliRunner().invoke(main, ["verify", "--skip-tests", "--root", str(history),
+                                  "--db", str(db_file)])
+    assert r.exit_code == 0, r.output
+    assert "known    WARN" in r.output
+    r = CliRunner().invoke(main, ["verify", "--skip-tests", "--public", "--root", str(history),
+                                  "--db", str(db_file)])
+    assert r.exit_code == 1 and "known    FAIL" in r.output
+    assert "Zentrico" not in r.output and "zentrico.example" not in r.output
+    # scrubbing the file is not enough while history holds it
+    _track(history, verify.HAND_NOTES, "# Hand notes\n(scrubbed)\n")
+    _commit(history, "scrub")
+    assert not verify.check_known(history, public=True).ok
+
+
+def test_verify_copes_without_a_database_or_commits(repo: Path, tmp_path: Path) -> None:
+    results = verify.run_all(repo, tmp_path / "none.db", skip_tests=True, public=True)
+    assert all(r.ok for r in results), [verify.format_result(r) for r in results if not r.ok]

@@ -621,9 +621,22 @@ class HubspotSync(Row):
     synced_at: str | None = None
 
 
+class HandMinutes(Row):
+    """What a Phase 0 teardown cost by hand, in minutes (`te company add --hand
+    --minutes-*`, 0020; read by metrics for minutes per teardown)."""
+
+    TABLE: ClassVar[str] = "hand_minutes"
+
+    company_id: NonBlank
+    research: Annotated[float, Field(ge=0)] | None = None
+    writing: Annotated[float, Field(ge=0)] | None = None
+    slice: Annotated[float, Field(ge=0)] | None = None
+    updated_at: str | None = None
+
+
 ALL_MODELS: tuple[type[Row], ...] = (
     Signal, Company, CompanyFlag, Artifact, Fact, Contact, Gold,
     Diagnosis, Teardown, Touch, LlmCall, Suppression, JudgeScore,
     SliceRow, SliceCompetitor, SliceArtifact, QualityCheck, Review, SendStop,
-    Reply, Meeting, Close, HubspotSync,
+    Reply, Meeting, Close, HubspotSync, HandMinutes,
 )

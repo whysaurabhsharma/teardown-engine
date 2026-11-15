@@ -57,4 +57,4 @@ debug/          redacted exports you may read; gitignored
 data/, site/    gitignored; never touched from git, never read by you
 
 ## Current step
-Phases 1-6 code done (through Steps 67, 76-78, 80, 82: replies, meetings, closes, metrics, HubSpot sync, prep; migration 0019). Live gates open. Next: Steps 83-85, 87-88 (analysis, verify hardening, demo, CI).
+All code built (Steps 10-88 code parts; schema version 20). Remaining work is the user's: keys and accounts, live runs and gates 1.3, 2.1 onward, gold diagnoses, review and sending, write-up and publishing (Steps 86, 89-91). Before Step 90: scrub protocol/HAND_NOTES.md from history (te verify --public).

@@ -1,4 +1,4 @@
--- engine/schema.sql: the current full schema (version 19), for reading.
+-- engine/schema.sql: the current full schema (version 20), for reading.
 -- The database is built only from migrations/; tests/test_db.py checks the two
 -- match. To change the schema, add a numbered migration, then update this file.
 
@@ -603,4 +603,14 @@ CREATE TABLE hubspot_sync (
     props_sha256 TEXT,
     synced_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     PRIMARY KEY (object, te_key)
+);
+
+-- hand_minutes was added by 0020_hand_minutes: what a Phase 0 teardown cost by
+-- hand, in minutes (research, writing, slice), typed with `te company add --hand`.
+CREATE TABLE hand_minutes (
+    company_id  TEXT PRIMARY KEY REFERENCES companies(company_id),
+    research    REAL CHECK (research IS NULL OR research >= 0),
+    writing     REAL CHECK (writing IS NULL OR writing >= 0),
+    slice       REAL CHECK (slice IS NULL OR slice >= 0),
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );

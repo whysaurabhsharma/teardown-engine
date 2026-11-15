@@ -19,9 +19,15 @@ STUB_COMMANDS = (
 NO_DOTENV_ENV_VAR = "TE_NO_DOTENV"  # set by the test suite so .env is never loaded
 
 
+NO_DOTENV_COMMANDS = ("demo",)  # runs with no keys: .env is never loaded for these
+
+
 @click.group()
-def main() -> None:
+@click.pass_context
+def main(ctx: click.Context) -> None:
     """Teardown engine."""
+    if ctx.invoked_subcommand in NO_DOTENV_COMMANDS:
+        return
     if not os.environ.get(NO_DOTENV_ENV_VAR):
         from dotenv import find_dotenv, load_dotenv
 
@@ -991,6 +997,12 @@ def company_group() -> None:
 @click.option("--reply-on", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
               help="Date of the reply, YYYY-MM-DD.")
 @click.option("--note", default=None, help="Free text about the company; never a person's name.")
+@click.option("--minutes-research", type=click.FloatRange(min=0, max=6000), default=None,
+              help="Minutes spent researching it by hand (hand_minutes).")
+@click.option("--minutes-writing", type=click.FloatRange(min=0, max=6000), default=None,
+              help="Minutes spent writing the teardown and email by hand.")
+@click.option("--minutes-slice", type=click.FloatRange(min=0, max=6000), default=None,
+              help="Minutes spent building the proof slice by hand.")
 @click.option("--adopt", is_flag=True,
               help="The domain is already in the pipeline: mark that row hand-made and move "
                    "it forward to sent.")
@@ -998,7 +1010,9 @@ def company_group() -> None:
 @_db_option
 def company_add(hand: bool, company: str, domain: str, segment: str, role: str, role_url: str,
                 offer: str, family: str | None, sent_on: datetime | None, channel: str,
-                reply: str | None, reply_on: datetime | None, note: str | None, adopt: bool,
+                reply: str | None, reply_on: datetime | None, note: str | None,
+                minutes_research: float | None, minutes_writing: float | None,
+                minutes_slice: float | None, adopt: bool,
                 dry_run: bool, db_file: Path | None) -> None:
     """Enter a Phase 0 company with its role and touch 1 (Step 30).
 
@@ -1016,7 +1030,8 @@ def company_add(hand: bool, company: str, domain: str, segment: str, role: str, 
         company=company, domain=domain, segment=segment, role=role, role_url=role_url,
         offer=offer, family=family, sent_on=sent_on.date() if sent_on else None,
         reply=reply, reply_on=reply_on.date() if reply_on else None, channel=channel,
-        note=note, adopt=adopt)
+        note=note, adopt=adopt, minutes_research=minutes_research,
+        minutes_writing=minutes_writing, minutes_slice=minutes_slice)
     today = datetime.now(UTC).date()
     if dry_run:
         try:
@@ -3287,6 +3302,106 @@ def quality_cmd(company_id: str | None, company_opt: str | None, pilot: bool,
     sys.exit(1 if failed else 0)
 
 
+@main.group("report")
+def report_group() -> None:
+    """Phase 7 analysis from the database alone (Steps 83-85, Gate 7.1). Aggregate only."""
+
+
+def _report_terms(conn):
+    from engine import sensitive
+
+    return sensitive.terms(conn)
+
+
+@report_group.command("numbers")
+@click.option("--json", "as_json", is_flag=True, help="Print JSON.")
+@_db_option
+def report_numbers(as_json: bool, db_file: Path | None) -> None:
+    """Step 83: every rate with its counts and a 95% Wilson interval."""
+    from engine.report import numbers as RN
+
+    conn = _conn_or_fail(db_file)
+    try:
+        n = RN.compute(conn)
+    finally:
+        conn.close()
+    if as_json:
+        click.echo(RN.format_json(n))
+    else:
+        for line in RN.format_text(n):
+            click.echo(line)
+
+
+@report_group.command("figures")
+@click.option("--out", "out_dir", type=click.Path(file_okay=False, path_type=Path),
+              required=True, help="Folder for funnel.svg, reply_rate.svg, minutes.svg.")
+@_db_option
+def report_figures(out_dir: Path, db_file: Path | None) -> None:
+    """Step 85: the three figures as SVG (deterministic, aggregate only)."""
+    _report_write(out_dir, db_file, numbers=False)
+
+
+@report_group.command("all")
+@click.option("--out", "out_dir", type=click.Path(file_okay=False, path_type=Path),
+              required=True, help="Folder for numbers.txt, numbers.json and the figures.")
+@_db_option
+def report_all(out_dir: Path, db_file: Path | None) -> None:
+    """Gate 7.1: regenerate every number and figure with one command."""
+    _report_write(out_dir, db_file, numbers=True)
+
+
+def _report_write(out_dir: Path, db_file: Path | None, numbers: bool) -> None:
+    from engine.report import anonymise as RA
+    from engine.report import figures as RF
+    from engine.report import numbers as RN
+
+    conn = _conn_or_fail(db_file)
+    try:
+        n = RN.compute(conn)
+        files = RF.render_all(conn, n)
+        if numbers:
+            files["numbers.txt"] = "\n".join(RN.format_text(n)) + "\n"
+            files["numbers.json"] = RN.format_json(n) + "\n"
+        terms = _report_terms(conn)
+    finally:
+        conn.close()
+    hits = [h for name, text in sorted(files.items()) for h in RA.scan_text(name, text, terms)]
+    if hits:
+        for h in hits:
+            click.echo(f"  {h}")
+        _fail(f"refused: {len(hits)} sensitive value(s) in the report output; nothing written")
+        return
+    for p in RF.write(out_dir, files):
+        click.echo(f"wrote {p}")
+    click.echo("aggregate only; anonymise-check clean")
+
+
+@report_group.command("anonymise-check")
+@click.argument("paths", nargs=-1, required=True,
+                type=click.Path(exists=True, path_type=Path))
+@_db_option
+def report_anonymise_check(paths: tuple[Path, ...], db_file: Path | None) -> None:
+    """Step 84: fail if a file holds a company name or domain, a contact's name,
+    email or title, or a reply note from the database. Prints file:line and the
+    kind of match, never the value."""
+    from engine.report import anonymise as RA
+
+    conn = _conn_or_fail(db_file)
+    try:
+        terms = _report_terms(conn)
+    finally:
+        conn.close()
+    files = RA.files_in(paths)
+    hits = RA.scan_files(paths, terms)
+    for h in hits:
+        click.echo(str(h))
+    if hits:
+        _fail(f"{len(hits)} sensitive match(es) in {len({h.path for h in hits})} of "
+              f"{len(files)} file(s)")
+        return
+    click.echo(f"clean: {len(files)} file(s), {len(terms)} values checked")
+
+
 @main.group()
 def debug() -> None:
     """Redacted exports for debugging a record."""
@@ -3327,15 +3442,59 @@ def debug_export(
 @click.option("--skip-tests", is_flag=True, help="Do not run the test suite.")
 @click.option("--root", type=click.Path(file_okay=False, exists=True, path_type=Path),
               default=Path("."), show_default=True, help="Repository root.")
-def verify_cmd(db_file: Path | None, skip_tests: bool, root: Path) -> None:
-    """Run the pre-commit checks; exit 1 if any fails."""
+@click.option("--public", is_flag=True,
+              help="Before publishing (Step 87): name/title hits and the known "
+                   "protocol/HAND_NOTES.md item fail too.")
+def verify_cmd(db_file: Path | None, skip_tests: bool, root: Path, public: bool) -> None:
+    """Run the pre-commit checks; exit 1 if any fails.
+
+    Hits name a commit (or the worktree), a path, a line and the kind of value,
+    never the value. Without a database the checks that need one are skipped."""
     from engine.verify import format_result, run_all
 
-    results = run_all(root, db_file, skip_tests=skip_tests)
+    results = run_all(root, db_file, skip_tests=skip_tests, public=public)
     width = max(len(r.name) for r in results)
     for r in results:
         click.echo(format_result(r, width))
     sys.exit(0 if all(r.ok for r in results) else 1)
+
+
+# --- demo (Step 88) ------------------------------------------------------------------
+
+
+@main.command("demo")
+@click.option("--out", "out_dir", type=click.Path(file_okay=False, path_type=Path), default=None,
+              help="An empty or new folder for the demo's database, cache and site "
+                   "(default: a fresh temporary folder).")
+@click.option("--keep/--no-keep", default=True, show_default=True,
+              help="Keep the folder afterwards (--no-keep deletes it, teardown included).")
+def demo_cmd(out_dir: Path | None, keep: bool) -> None:
+    """The whole pipeline on three invented companies: offline, no keys, never data/."""
+    import shutil
+
+    from engine.demo import run as D
+
+    root = out_dir if out_dir is not None else D.default_root()
+    try:
+        res = D.run(root, echo=click.echo)
+    except D.DemoError as e:
+        _fail(f"refused: {e}")
+        return
+    click.echo("")
+    click.echo("te metrics on the demo database (DEMO DATA, not a campaign):")
+    for line in res.metrics:
+        click.echo(f"  {line}" if line else "")
+    click.echo("")
+    click.echo(f"requests served by the invented sites: {res.requests}; network connections: 0")
+    if res.teardown is None:
+        click.echo("no teardown was rendered")
+        sys.exit(1)
+    if keep:
+        click.echo(f"teardown: {res.teardown}")
+        click.echo(f"demo folder: {res.root}")
+    else:
+        shutil.rmtree(res.root, ignore_errors=True)
+        click.echo("demo folder deleted (--no-keep)")
 
 
 if __name__ == "__main__":

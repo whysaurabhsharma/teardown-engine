@@ -1,4 +1,4 @@
-.PHONY: test smoke signal careers resolve qualify capture extract people judge build queue sync metrics backup verify
+.PHONY: test smoke signal careers resolve qualify capture extract people judge build queue sync metrics backup verify demo
 
 test:
 	uv run pytest
@@ -58,3 +58,7 @@ sync:
 # From the database alone, no network (Step 78, Gate 6.2).
 metrics:
 	uv run te metrics
+
+# Three invented companies, offline, no keys; never touches data/ or site/ (Step 88).
+demo:
+	uv run te demo

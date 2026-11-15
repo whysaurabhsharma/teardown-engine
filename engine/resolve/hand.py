@@ -24,6 +24,11 @@ already in the pipeline (hand = 0) is refused unless adopt is set, which
 marks it hand = 1 and moves it forward to `sent` (never backward, never a
 dropped or pilot row).
 
+Minutes by hand (--minutes-research, --minutes-writing, --minutes-slice) go to
+hand_minutes (migration 0020), one row per company: what the teardown cost
+before the engine existed, the baseline for minutes per teardown (Step 78).
+A part already stored with a different value is reported, never overwritten.
+
 No network, no model calls.
 """
 
@@ -69,6 +74,15 @@ class HandEntry:
     channel: str = "email"
     note: str | None = None
     adopt: bool = False
+    minutes_research: float | None = None
+    minutes_writing: float | None = None
+    minutes_slice: float | None = None
+
+    def minutes(self) -> dict[str, float]:
+        """The minutes typed, by hand_minutes column."""
+        parts = {"research": self.minutes_research, "writing": self.minutes_writing,
+                 "slice": self.minutes_slice}
+        return {k: float(v) for k, v in parts.items() if v is not None}
 
 
 @dataclass
@@ -98,6 +112,9 @@ def prepare(e: HandEntry, today: date) -> tuple[str, str, str, Signal]:
         raise HandError("--reply-on needs --reply")
     if e.channel not in CHANNELS:
         raise HandError(f"channel must be one of {', '.join(CHANNELS)}")
+    for part, v in e.minutes().items():
+        if not 0 <= v <= 6000:
+            raise HandError(f"--minutes-{part} must be between 0 and 6000")
     dom = registrable_domain(e.domain)
     if dom is None:
         raise HandError(f"not a registrable domain: {e.domain!r}")
@@ -217,6 +234,30 @@ def add(conn: sqlite3.Connection, e: HandEntry, *, today: date) -> HandResult:
                 conn.execute(f"UPDATE touches SET {sets} WHERE touch_id = ?",
                              (*fill.values(), t["touch_id"]))
                 res.changes.append("touch 1 " + ", ".join(fill))
+
+        typed = e.minutes()
+        if typed:
+            hm = conn.execute("SELECT research, writing, slice FROM hand_minutes "
+                              "WHERE company_id = ?", (cid,)).fetchone()
+            if hm is None:
+                cols = ", ".join(typed)
+                marks = ", ".join("?" for _ in typed)
+                conn.execute(f"INSERT INTO hand_minutes (company_id, {cols}) "
+                             f"VALUES (?, {marks})", (cid, *typed.values()))
+                res.changes.append("minutes " + ", ".join(f"{k} {v:g}"
+                                                          for k, v in typed.items()))
+            else:
+                fill_m = {k: v for k, v in typed.items() if hm[k] is None}
+                for k, v in typed.items():
+                    if hm[k] is not None and float(hm[k]) != v:
+                        res.warnings.append(f"minutes {k} is {hm[k]:g}; unchanged")
+                if fill_m:
+                    sets = ", ".join(f"{k} = ?" for k in fill_m)
+                    conn.execute(f"UPDATE hand_minutes SET {sets}, updated_at = "
+                                 "strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE company_id = ?",
+                                 (*fill_m.values(), cid))
+                    res.changes.append("minutes " + ", ".join(f"{k} {v:g}"
+                                                              for k, v in fill_m.items()))
 
         if e.reply == OPTOUT and conn.execute(
                 "SELECT 1 FROM suppressions WHERE email_or_domain = ?", (dom,)).fetchone() is None:

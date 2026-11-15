@@ -26,7 +26,11 @@ Definitions (one place; the CLI and the JSON use these names):
                   hand-made ones included when recorded) / 60 / meetings held
   minutes per teardown
                   mean and median of teardowns.review_minutes per company,
-                  hand-made (companies.hand = 1) and engine-made apart
+                  hand-made (companies.hand = 1) and engine-made apart; a
+                  hand-made company with hand_minutes recorded (0020: research
+                  + writing + slice, typed with `te company add --hand`) counts
+                  those instead of its review minutes, here and in hours per
+                  meeting
   model spend     llm_calls.cost_usd summed (what the provider reported; a
                   subscription reports an estimate, not a charge); per meeting
                   held. Spend outside model calls is not in the database.
@@ -229,6 +233,19 @@ def load(conn: sqlite3.Connection) -> list[Rec]:
                           "WHERE review_minutes IS NOT NULL GROUP BY company_id"):
         if r["company_id"] in recs:
             recs[r["company_id"]].minutes = float(r["m"])
+    # A hand-made teardown's cost is what was typed with `te company add --hand
+    # --minutes-*` (hand_minutes, 0020): research + writing + slice. It replaces the
+    # review minutes for that company, so the two are never added twice.
+    try:
+        hand_rows = conn.execute("SELECT company_id, research, writing, slice "
+                                 "FROM hand_minutes").fetchall()
+    except sqlite3.OperationalError:  # a database not yet migrated to 0020
+        hand_rows = []
+    for r in hand_rows:
+        rec = recs.get(r["company_id"])
+        parts = [r[k] for k in ("research", "writing", "slice") if r[k] is not None]
+        if rec is not None and rec.hand and parts:
+            rec.minutes = float(sum(parts))
     for r in conn.execute("SELECT company_id, outcome FROM closes"):
         if r["company_id"] in recs:
             recs[r["company_id"]].close = r["outcome"]

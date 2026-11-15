@@ -1,0 +1,40 @@
+# Tests, the offline demo and the repo checks on a clean runner (docs/PLAN.md Step 88).
+# No secrets: the demo runs on invented companies with canned model answers, and
+# nothing here reads .env, data/ or site/.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      TE_NO_DOTENV: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # te verify reads the whole history
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install
+        run: uv sync --locked
+      - name: Tests
+        run: uv run pytest -q
+      - name: Demo
+        run: uv run te demo
+      - name: Verify
+        run: uv run te verify --skip-tests
